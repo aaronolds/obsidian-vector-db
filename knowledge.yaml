@@ -1,0 +1,40 @@
+vault:
+  id: primary
+  # Relative paths resolve against this configuration file's directory.
+  # Override this with KNOWLEDGE_VAULT__PATH for your Obsidian vault.
+  path: ./docs
+
+index:
+  include:
+    - "**/*.md"
+  exclude:
+    - ".obsidian/**"
+    - ".trash/**"
+    - "Templates/**"
+  frontmatterOptOutField: ai-index
+
+chunking:
+  targetTokens: 300
+  softMaxTokens: 400
+  overlapTokens: 40
+  overlapOnlyWhenSplit: true
+
+embedding:
+  provider: onnx
+  model: BAAI/bge-small-en-v1.5
+  dimensions: 384
+
+qdrant:
+  host: localhost
+  port: 6334
+  collection: obsidian-knowledge
+
+retrieval:
+  defaultLimit: 5
+  maxLimit: 50
+  mode: dense
+
+logging:
+  level: Information
+  logContent: false
+  logQueries: false
