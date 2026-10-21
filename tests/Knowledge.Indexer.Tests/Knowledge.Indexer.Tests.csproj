@@ -16,6 +16,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <ProjectReference Include="../../src/Knowledge.Indexer/Knowledge.Indexer.csproj" />
+    <ProjectReference Include="../../src/Knowledge.Markdown/Knowledge.Markdown.csproj" />
     <None Include="../../knowledge.yaml" Link="knowledge.yaml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

@@ -30,6 +30,8 @@ public sealed class KnowledgeOptionsValidator : IValidateOptions<KnowledgeOption
         Require(options.Embedding.Provider == "onnx", "embedding.provider must be onnx for local inference (ADR-003/008).");
         Require(options.Embedding.Model == "BAAI/bge-small-en-v1.5", "embedding.model must be BAAI/bge-small-en-v1.5 for the POC (ADR-003).");
         Require(options.Embedding.Dimensions == 384, "embedding.dimensions must be 384 for the POC model (ADR-003).");
+        Require(string.IsNullOrWhiteSpace(options.Embedding.TokenizerPath) || File.Exists(options.Embedding.TokenizerPath),
+            "embedding.tokenizerPath must point to an existing local vocabulary file when configured.");
         Require(IsLocalHost(options.Qdrant.Host), "qdrant.host must be localhost or a loopback IP address for the local POC (ADR-008).");
         Require(options.Qdrant.Port is > 0 and <= 65535, "qdrant.port must be between 1 and 65535 (gRPC, normally 6334).");
         Require(!string.IsNullOrWhiteSpace(options.Qdrant.Collection) && options.Qdrant.Collection.All(

@@ -1,5 +1,9 @@
 using Knowledge.Indexer.Configuration;
 using Knowledge.Qdrant;
+using Knowledge.Markdown;
+using Knowledge.Embeddings;
+using Knowledge.Core;
+using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -8,15 +12,19 @@ namespace Knowledge.Indexer;
 
 public static class KnowledgeCli
 {
-    private const string Usage = "Usage: knowledge status [--config <path>]";
+    private const string Usage = "Usage: knowledge status [--config <path>] | knowledge chunks [--config <path>]";
 
     public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error, CancellationToken cancellationToken = default)
     {
-        if (args is ["--help"] or ["-h"] or ["status", "--help"])
+        if (args is ["--help"] or ["-h"] or ["status", "--help"] or ["chunks", "--help"])
         {
             await output.WriteLineAsync(Usage);
             return 0;
         }
+        var command = args.FirstOrDefault();
+        if (command == "chunks")
+            return await RunChunksAsync(args[1..], output, error, cancellationToken);
+
         var configPath = args switch
         {
             ["status"] => "knowledge.yaml",
@@ -91,6 +99,67 @@ public static class KnowledgeCli
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
             await error.WriteLineAsync("Status cancelled.");
+            return 130;
+        }
+    }
+
+    private static async Task<int> RunChunksAsync(string[] args, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    {
+        var configPath = args switch
+        {
+            [] => "knowledge.yaml",
+            ["--config", var path] when !string.IsNullOrWhiteSpace(path) => path,
+            _ => null
+        };
+        if (configPath is null)
+        {
+            await error.WriteLineAsync(Usage);
+            return 2;
+        }
+        try
+        {
+            using var configuration = KnowledgeConfiguration.Load(configPath);
+            var services = new ServiceCollection();
+            services.AddKnowledgeOptions(configuration, configPath);
+            using var provider = services.BuildServiceProvider();
+            var options = provider.GetRequiredService<IOptions<KnowledgeOptions>>().Value;
+            ITokenCounter counter = string.IsNullOrWhiteSpace(options.Embedding.TokenizerPath)
+                ? new ApproximateBertTokenCounter()
+                : new BertWordPieceTokenCounter(options.Embedding.TokenizerPath);
+            var ingestion = new MarkdownIngestor(counter);
+            var result = ingestion.ReadVault(new MarkdownIngestionOptions(options.Vault.Id, options.Vault.Path,
+                options.Index.Include, options.Index.Exclude, options.Index.FrontmatterOptOutField,
+                options.Chunking.TargetTokens, options.Chunking.SoftMaxTokens, options.Chunking.OverlapTokens), cancellationToken);
+            foreach (var chunk in result.Chunks)
+                await output.WriteLineAsync(JsonSerializer.Serialize(chunk, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+            foreach (var diagnostic in result.Diagnostics)
+                await error.WriteLineAsync($"Ingestion error [{diagnostic.Code}] {diagnostic.RelativePath}: {diagnostic.Message}");
+            await error.WriteLineAsync($"Chunks: {result.Chunks.Count}; documents: {result.DocumentsProcessed}; skipped: {result.DocumentsSkipped}; errors: {result.Diagnostics.Count}");
+            return result.Diagnostics.Count == 0 ? 0 : 1;
+        }
+        catch (OptionsValidationException ex)
+        {
+            foreach (var failure in ex.Failures) await error.WriteLineAsync($"Configuration error: {failure}");
+            return 2;
+        }
+        catch (KnowledgeConfigurationException ex)
+        {
+            await error.WriteLineAsync($"Configuration error: {ex.Message}");
+            return 2;
+        }
+        catch (InvalidDataException ex)
+        {
+            await error.WriteLineAsync($"Tokenizer error: {ex.Message}");
+            return 2;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            await error.WriteLineAsync("Configuration error: cannot read the configuration file. Run from the repository root or use --config <path>.");
+            return 2;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await error.WriteLineAsync("Chunking cancelled.");
             return 130;
         }
     }

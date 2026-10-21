@@ -39,6 +39,8 @@ public static class KnowledgeConfiguration
             {
                 if (!string.IsNullOrWhiteSpace(options.Vault.Path))
                     options.Vault.Path = Path.GetFullPath(options.Vault.Path, basePath);
+                if (!string.IsNullOrWhiteSpace(options.Embedding.TokenizerPath))
+                    options.Embedding.TokenizerPath = Path.GetFullPath(options.Embedding.TokenizerPath, basePath);
             });
         return services;
     }

@@ -4,9 +4,10 @@ A local-first .NET 10 knowledge platform with authoritative Markdown and a
 rebuildable Qdrant index. The architecture in `docs/` and decisions in `docs/adr/`
 govern implementation.
 
-**Implemented: Milestone 0 only.** The executable loads and validates configuration
-and reports vault existence and Qdrant connectivity. Ingestion, inference,
-collection creation, indexing, retrieval, watching, and MCP hosting are deferred.
+**Implemented: Milestone 1.** The executable loads and validates configuration,
+reports vault existence and Qdrant connectivity, and can scan, parse, normalize,
+and chunk Markdown without Qdrant or model inference. Embeddings, collection
+creation, indexing, retrieval, watching, and MCP hosting remain deferred.
 
 ## Prerequisites
 
@@ -91,6 +92,25 @@ Exit codes: `0` means the vault exists and Qdrant responds; `1` means the vault 
 missing or Qdrant is unavailable; `2` means invalid configuration or command usage;
 `130` means cancellation.
 
+## Print Markdown chunks
+
+Milestone 1 exposes a local inspection command that does not start Qdrant, load
+ONNX weights, or make network requests:
+
+```sh
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj --no-build -- \
+  chunks --config knowledge.yaml > chunks.ndjson
+```
+
+The command recursively discovers eligible Markdown files, parses frontmatter and
+Obsidian wikilinks, preserves original Markdown, produces normalized content, and
+prints one deterministic camel-case `KnowledgeChunk` JSON object per line. Errors
+are written to stderr and return exit code `1`; configuration and tokenizer setup
+errors return `2`. Frontmatter `ai-index: false` and configured excludes prevent a
+note from producing chunks. Set `embedding.tokenizerPath` to the selected model's
+local `vocab.txt` for exact WordPiece sizing; without it, the command uses a
+deterministic conservative counter and still enforces the configured hard window.
+
 ## Configuration and logging
 
 `knowledge.yaml` follows `docs/07-configuration-reference.md`. All sections bind to
@@ -134,7 +154,8 @@ The live integration check is starting Compose and running status as shown above
 ## Project boundaries
 
 - `Knowledge.Core`: dependency-free domain boundary; no unused contracts added.
-- `Knowledge.Markdown`: library shell for later ingestion and chunking.
+- `Knowledge.Markdown`: vault discovery, frontmatter/Markdown parsing, normalization,
+  wikilink extraction, and structure-aware deterministic chunking.
 - `Knowledge.Embeddings`: library shell for later local ONNX inference.
 - `Knowledge.Qdrant`: read-only gRPC health probe; references Core.
 - `Knowledge.Indexer`: executable named `knowledge`; owns configuration and CLI.
@@ -144,5 +165,6 @@ The live integration check is starting Compose and running status as shown above
 Infrastructure libraries reference Core, which references none of them. No Core
 abstractions were needed in Milestone 0, so no placeholder domain tests were added.
 
-See `docs/09-milestone-0-implementation-notes.md` for scope-specific decisions and
-validation deferred to the milestones that use Markdown, model assets, and vectors.
+See `docs/09-milestone-0-implementation-notes.md` for foundation decisions and
+`docs/10-milestone-1-implementation-plan.md` for the ingestion contract and
+validation deferred to model assets and vectors.

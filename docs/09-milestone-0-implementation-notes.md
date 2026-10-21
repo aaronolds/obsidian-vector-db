@@ -65,3 +65,14 @@ explicitly rejected in this milestone.
 
 Exit codes are 0 for an existing vault and reachable Qdrant, 1 for missing vault
 or unavailable Qdrant, 2 for command/configuration errors, and 130 for cancellation.
+
+## Milestone 1 tokenizer sequencing note
+
+Milestone 1 now performs token-budgeted chunking without loading an embedding
+model. The exact BGE WordPiece vocabulary is an external model asset and is not
+committed to this repository. `embedding.tokenizerPath` accepts a local `vocab.txt`
+when available and uses the `BertWordPieceTokenCounter`; the `chunks` inspection
+command otherwise uses a deterministic conservative counter so the checked-in
+sample vault remains runnable without model downloads. Milestone 2 must validate
+that the selected vocabulary and ONNX runtime reproduce the reference BGE
+tokenization and inference behavior before embedding-backed indexing is enabled.

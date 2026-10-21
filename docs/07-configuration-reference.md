@@ -40,6 +40,7 @@ embedding:
   provider: onnx
   model: BAAI/bge-small-en-v1.5
   dimensions: 384
+  tokenizerPath: ./models/bge-small-en-v1.5/vocab.txt
 
 qdrant:
   host: localhost
@@ -87,6 +88,11 @@ The following settings are index-defining:
 - dimensions
 - normalization behavior
 - embedding schema version
+
+`tokenizerPath` is an optional local path to the vocabulary file shipped with the
+selected model. When configured, Milestone 1 uses it for WordPiece token counts;
+the path must exist and is resolved relative to the configuration file. Model
+assets are never downloaded by the indexer.
 
 Changing them requires rebuild.
 

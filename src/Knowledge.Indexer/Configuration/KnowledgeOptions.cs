@@ -37,6 +37,7 @@ public sealed class EmbeddingOptions
     public string Provider { get; set; } = "onnx";
     public string Model { get; set; } = "BAAI/bge-small-en-v1.5";
     public int Dimensions { get; set; } = 384;
+    public string TokenizerPath { get; set; } = "";
 }
 
 public sealed class QdrantOptions
