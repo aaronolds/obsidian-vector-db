@@ -77,10 +77,11 @@ No ONNX runtime or model weights are needed for counting.
 
 Document a local tokenizer-asset setup step, revision/checksums, license, and asset
 path configuration. Do not download assets during ingestion. The repository's
-sample-vault inspection command may use its deterministic conservative counter
-when no vocabulary is configured; a configured vocabulary must use the local
-WordPiece adapter and missing/incompatible assets fail clearly. Milestone 2 must
-validate model-exact tokenization before embedding-backed indexing.
+sample-vault inspection command may use its deterministic approximate counter
+when no vocabulary is configured; it can underestimate tokens and does not
+guarantee the model limit. A configured vocabulary must use the pinned local
+WordPiece adapter and incompatible assets fail clearly. Milestone 2 validates
+model-exact tokenization before embedding-backed indexing.
 
 Acceptance: canonical models compile; identity/hash tests pass; token counts
 match the pinned reference cases, including identifiers, Unicode, and punctuation.

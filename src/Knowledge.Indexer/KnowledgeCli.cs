@@ -7,16 +7,17 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.ML.OnnxRuntime;
 
 namespace Knowledge.Indexer;
 
 public static class KnowledgeCli
 {
-    private const string Usage = "Usage: knowledge status [--config <path>] | knowledge chunks [--config <path>]";
+    private const string Usage = "Usage: knowledge status [--config <path>] | knowledge chunks [--config <path>] | knowledge embeddings [--config <path>]";
 
     public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error, CancellationToken cancellationToken = default)
     {
-        if (args is ["--help"] or ["-h"] or ["status", "--help"] or ["chunks", "--help"])
+        if (args is ["--help"] or ["-h"] or ["status", "--help"] or ["chunks", "--help"] or ["embeddings", "--help"])
         {
             await output.WriteLineAsync(Usage);
             return 0;
@@ -24,6 +25,8 @@ public static class KnowledgeCli
         var command = args.FirstOrDefault();
         if (command == "chunks")
             return await RunChunksAsync(args[1..], output, error, cancellationToken);
+        if (command == "embeddings")
+            return await RunEmbeddingsAsync(args[1..], output, error, cancellationToken);
 
         var configPath = args switch
         {
@@ -125,7 +128,7 @@ public static class KnowledgeCli
             var options = provider.GetRequiredService<IOptions<KnowledgeOptions>>().Value;
             ITokenCounter counter = string.IsNullOrWhiteSpace(options.Embedding.TokenizerPath)
                 ? new ApproximateBertTokenCounter()
-                : new BertWordPieceTokenCounter(options.Embedding.TokenizerPath);
+                : new BertWordPieceTokenizer(options.Embedding.TokenizerPath);
             var ingestion = new MarkdownIngestor(counter);
             var result = ingestion.ReadVault(new MarkdownIngestionOptions(options.Vault.Id, options.Vault.Path,
                 options.Index.Include, options.Index.Exclude, options.Index.FrontmatterOptOutField,
@@ -160,6 +163,120 @@ public static class KnowledgeCli
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             await error.WriteLineAsync("Chunking cancelled.");
+            return 130;
+        }
+    }
+
+    private static async Task<int> RunEmbeddingsAsync(string[] args, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    {
+        var configPath = args switch
+        {
+            [] => "knowledge.yaml",
+            ["--config", var path] when !string.IsNullOrWhiteSpace(path) => path,
+            _ => null
+        };
+        if (configPath is null)
+        {
+            await error.WriteLineAsync(Usage);
+            return 2;
+        }
+
+        try
+        {
+            using var configuration = KnowledgeConfiguration.Load(configPath);
+            var services = new ServiceCollection();
+            services.AddKnowledgeOptions(configuration, configPath);
+            using var provider = services.BuildServiceProvider();
+            var options = provider.GetRequiredService<IOptions<KnowledgeOptions>>().Value;
+            if (string.IsNullOrWhiteSpace(options.Embedding.ModelPath) || string.IsNullOrWhiteSpace(options.Embedding.TokenizerPath))
+                throw new EmbeddingAssetException("embedding.modelPath and embedding.tokenizerPath must point to pinned local BGE assets.");
+
+            using var embeddings = new OnnxEmbeddingService(options.Embedding.ModelPath, options.Embedding.TokenizerPath);
+            var ingestion = new MarkdownIngestor(embeddings);
+            var result = ingestion.ReadVault(new MarkdownIngestionOptions(options.Vault.Id, options.Vault.Path,
+                options.Index.Include, options.Index.Exclude, options.Index.FrontmatterOptOutField,
+                options.Chunking.TargetTokens, options.Chunking.SoftMaxTokens, options.Chunking.OverlapTokens), cancellationToken);
+
+            var failures = result.Diagnostics.Count;
+            var emitted = 0;
+            foreach (var diagnostic in result.Diagnostics)
+                await error.WriteLineAsync($"Ingestion error [{diagnostic.Code}] {diagnostic.RelativePath}: {diagnostic.Message}");
+
+            foreach (var document in result.Chunks.GroupBy(chunk => chunk.DocumentId))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var pending = new List<(KnowledgeChunk Chunk, EmbeddingResult Result, int TokenCount)>();
+                try
+                {
+                    foreach (var chunk in document.OrderBy(x => x.ChunkOrdinal))
+                    {
+                        var text = EmbeddingTextFormatter.Format(chunk.Title, chunk.HeadingPath, chunk.Tags, chunk.ContentNormalized);
+                        pending.Add((chunk, await embeddings.EmbedAsync(text, cancellationToken), embeddings.CountTokens(text)));
+                    }
+                }
+                catch (Exception ex) when (ex is ArgumentException or InvalidDataException or OnnxRuntimeException)
+                {
+                    failures++;
+                    var failedPath = document.First().RelativePath;
+                    await error.WriteLineAsync($"Embedding error [inference-failed] {failedPath}: The document could not be embedded.");
+                    continue;
+                }
+
+                foreach (var item in pending)
+                {
+                    var envelope = new
+                    {
+                        documentId = item.Chunk.DocumentId,
+                        chunkId = item.Chunk.ChunkId,
+                        relativePath = item.Chunk.RelativePath,
+                        chunkOrdinal = item.Chunk.ChunkOrdinal,
+                        tokenCount = item.TokenCount,
+                        provider = item.Result.Provider,
+                        model = item.Result.Model,
+                        dimensions = item.Result.Dimensions,
+                        vector = item.Result.Vector.ToArray()
+                    };
+                    await output.WriteLineAsync(JsonSerializer.Serialize(envelope, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+                    emitted++;
+                }
+            }
+
+            await error.WriteLineAsync($"Embeddings: {emitted}; documents: {result.DocumentsProcessed}; skipped: {result.DocumentsSkipped}; errors: {failures}");
+            return failures == 0 ? 0 : 1;
+        }
+        catch (OptionsValidationException ex)
+        {
+            foreach (var failure in ex.Failures) await error.WriteLineAsync($"Configuration error: {failure}");
+            return 2;
+        }
+        catch (KnowledgeConfigurationException ex)
+        {
+            await error.WriteLineAsync($"Configuration error: {ex.Message}");
+            return 2;
+        }
+        catch (EmbeddingAssetException ex)
+        {
+            await error.WriteLineAsync($"Embedding asset error: {ex.Message}");
+            return 2;
+        }
+        catch (InvalidDataException ex)
+        {
+            await error.WriteLineAsync($"Tokenizer error: {ex.Message}");
+            return 2;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await error.WriteLineAsync("Embedding generation cancelled.");
+            return 130;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            await error.WriteLineAsync("Embedding asset error: a configured local model asset cannot be read.");
+            return 2;
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            await error.WriteLineAsync("Embedding generation cancelled.");
             return 130;
         }
     }

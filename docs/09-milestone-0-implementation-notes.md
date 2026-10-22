@@ -68,11 +68,9 @@ or unavailable Qdrant, 2 for command/configuration errors, and 130 for cancellat
 
 ## Milestone 1 tokenizer sequencing note
 
-Milestone 1 now performs token-budgeted chunking without loading an embedding
-model. The exact BGE WordPiece vocabulary is an external model asset and is not
-committed to this repository. `embedding.tokenizerPath` accepts a local `vocab.txt`
-when available and uses the `BertWordPieceTokenCounter`; the `chunks` inspection
-command otherwise uses a deterministic conservative counter so the checked-in
-sample vault remains runnable without model downloads. Milestone 2 must validate
-that the selected vocabulary and ONNX runtime reproduce the reference BGE
-tokenization and inference behavior before embedding-backed indexing is enabled.
+Milestone 1 performs chunking without loading an embedding model. The approximate
+counter used when no vocabulary is configured is deterministic, but it can
+underestimate BERT WordPiece counts and must not be treated as a model-limit
+guarantee. Milestone 2 supplies the pinned BGE WordPiece tokenizer and uses it for
+embedding input validation. `chunks` remains runnable without model downloads for
+inspection; `embeddings` requires the pinned local tokenizer and ONNX assets.

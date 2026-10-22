@@ -19,6 +19,16 @@ public sealed class CliTests
     }
 
     [Fact]
+    public async Task Embedding_help_is_available_without_model_assets_or_qdrant()
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        Assert.Equal(0, await KnowledgeCli.RunAsync(["embeddings", "--help"], output, error));
+        Assert.Contains("knowledge embeddings", output.ToString());
+        Assert.Equal("", error.ToString());
+    }
+
+    [Fact]
     public async Task Help_does_not_require_configuration_or_qdrant()
     {
         using var output = new StringWriter();

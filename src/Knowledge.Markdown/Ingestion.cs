@@ -9,7 +9,7 @@ using YamlDotNet.RepresentationModel;
 
 namespace Knowledge.Markdown;
 
-/// <summary>A deterministic conservative counter used until the model tokenizer is wired in Milestone 2.</summary>
+/// <summary>A deterministic approximation for asset-free chunk inspection only; it does not enforce the model limit.</summary>
 public sealed class ApproximateBertTokenCounter : ITokenCounter
 {
     public int Count(string text, bool includeSpecialTokens = true)
@@ -304,14 +304,8 @@ public sealed class MarkdownIngestor
     }
 
     private int Count(string title, IReadOnlyList<string> path, IReadOnlyList<string> tags, IReadOnlyList<Block> blocks) => _tokens.Count(Format(title, path, tags, blocks), true);
-    private static string Format(string title, IReadOnlyList<string> path, IReadOnlyList<string> tags, IReadOnlyList<Block> blocks)
-    {
-        var sb = new StringBuilder($"Title: {title}\n");
-        if (path.Count > 0) sb.Append("Section: ").Append(string.Join(" > ", path)).Append('\n');
-        if (tags.Count > 0) sb.Append("Tags: ").Append(string.Join(", ", tags)).Append('\n');
-        sb.Append('\n').Append(string.Join("\n\n", blocks.Select(x => x.Normalized)));
-        return sb.ToString();
-    }
+    private static string Format(string title, IReadOnlyList<string> path, IReadOnlyList<string> tags, IReadOnlyList<Block> blocks) =>
+        EmbeddingTextFormatter.Format(title, path, tags, string.Join("\n\n", blocks.Select(x => x.Normalized)));
 
     private KnowledgeChunk Create(KnowledgeDocument document, IReadOnlyList<string> path, IReadOnlyList<Block> blocks, int ordinal, MarkdownIngestionOptions options)
     {

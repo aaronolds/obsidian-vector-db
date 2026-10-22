@@ -1,8 +1,15 @@
 # Knowledge.Embeddings
 
-Milestone 1 includes `BertWordPieceTokenCounter`, which reads a local vocabulary
-file and counts model-style WordPiece tokens for chunk sizing. It performs no
-inference. Milestone 2 will add ONNX loading, pooling, normalization, and vector
-validation behind the embedding service contract.
+Milestone 2 provides `BertWordPieceTokenizer` and `OnnxEmbeddingService` for the
+pinned local `BAAI/bge-small-en-v1.5` model. The service uses CPU ONNX Runtime,
+CLS pooling, and L2 normalization to return finite 384-dimensional vectors. It
+validates the model and tokenizer digests before loading inference and rejects
+inputs beyond the model's 512-token window.
 
-Project boundary reserved for Milestone 2. No model downloads, tokenizer, inference, or cloud provider is implemented yet.
+The vocabulary, tokenizer configuration, model configuration, and pooling
+configuration are pinned and committed under `models/bge-small-en-v1.5/`. The
+133 MB ONNX weight file is excluded from Git. Install it explicitly with
+`scripts/setup-bge-model.sh`; no runtime download or cloud fallback exists.
+
+`ApproximateBertTokenCounter` remains available to the asset-free `chunks`
+inspection command. It is an estimate and cannot guarantee model-window fit.

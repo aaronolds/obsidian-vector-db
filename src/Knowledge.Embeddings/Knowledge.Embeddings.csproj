@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="../Knowledge.Core/Knowledge.Core.csproj" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.29.0" />
   </ItemGroup>
 
 </Project>

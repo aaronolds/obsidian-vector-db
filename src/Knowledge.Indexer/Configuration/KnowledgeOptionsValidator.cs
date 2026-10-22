@@ -32,6 +32,8 @@ public sealed class KnowledgeOptionsValidator : IValidateOptions<KnowledgeOption
         Require(options.Embedding.Dimensions == 384, "embedding.dimensions must be 384 for the POC model (ADR-003).");
         Require(string.IsNullOrWhiteSpace(options.Embedding.TokenizerPath) || File.Exists(options.Embedding.TokenizerPath),
             "embedding.tokenizerPath must point to an existing local vocabulary file when configured.");
+        Require(string.IsNullOrWhiteSpace(options.Embedding.ModelPath) || File.Exists(options.Embedding.ModelPath),
+            "embedding.modelPath must point to an existing local ONNX file when configured.");
         Require(IsLocalHost(options.Qdrant.Host), "qdrant.host must be localhost or a loopback IP address for the local POC (ADR-008).");
         Require(options.Qdrant.Port is > 0 and <= 65535, "qdrant.port must be between 1 and 65535 (gRPC, normally 6334).");
         Require(!string.IsNullOrWhiteSpace(options.Qdrant.Collection) && options.Qdrant.Collection.All(

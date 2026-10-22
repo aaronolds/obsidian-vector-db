@@ -41,6 +41,8 @@ public static class KnowledgeConfiguration
                     options.Vault.Path = Path.GetFullPath(options.Vault.Path, basePath);
                 if (!string.IsNullOrWhiteSpace(options.Embedding.TokenizerPath))
                     options.Embedding.TokenizerPath = Path.GetFullPath(options.Embedding.TokenizerPath, basePath);
+                if (!string.IsNullOrWhiteSpace(options.Embedding.ModelPath))
+                    options.Embedding.ModelPath = Path.GetFullPath(options.Embedding.ModelPath, basePath);
             });
         return services;
     }

@@ -1,0 +1,40 @@
+vault:
+  id: milestone2-sample
+  path: ./samples/milestone-2-vault
+
+index:
+  include:
+    - "**/*.md"
+  exclude:
+    - ".obsidian/**"
+    - ".trash/**"
+    - "Templates/**"
+  frontmatterOptOutField: ai-index
+
+chunking:
+  targetTokens: 300
+  softMaxTokens: 400
+  overlapTokens: 40
+  overlapOnlyWhenSplit: true
+
+embedding:
+  provider: onnx
+  model: BAAI/bge-small-en-v1.5
+  dimensions: 384
+  modelPath: ./models/bge-small-en-v1.5/onnx/model.onnx
+  tokenizerPath: ./models/bge-small-en-v1.5/vocab.txt
+
+qdrant:
+  host: localhost
+  port: 6334
+  collection: obsidian-knowledge
+
+retrieval:
+  defaultLimit: 5
+  maxLimit: 50
+  mode: dense
+
+logging:
+  level: Information
+  logContent: false
+  logQueries: false

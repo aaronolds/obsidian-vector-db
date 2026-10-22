@@ -4,10 +4,10 @@ A local-first .NET 10 knowledge platform with authoritative Markdown and a
 rebuildable Qdrant index. The architecture in `docs/` and decisions in `docs/adr/`
 govern implementation.
 
-**Implemented: Milestone 1.** The executable loads and validates configuration,
-reports vault existence and Qdrant connectivity, and can scan, parse, normalize,
-and chunk Markdown without Qdrant or model inference. Embeddings, collection
-creation, indexing, retrieval, watching, and MCP hosting remain deferred.
+**Implemented: Milestone 2.** The executable loads and validates configuration,
+reports vault existence and Qdrant connectivity, scans and chunks Markdown, and
+generates local BGE-small embeddings through ONNX Runtime. Collection creation,
+indexing, retrieval, watching, and MCP hosting remain deferred.
 
 ## Prerequisites
 
@@ -108,8 +108,62 @@ prints one deterministic camel-case `KnowledgeChunk` JSON object per line. Error
 are written to stderr and return exit code `1`; configuration and tokenizer setup
 errors return `2`. Frontmatter `ai-index: false` and configured excludes prevent a
 note from producing chunks. Set `embedding.tokenizerPath` to the selected model's
-local `vocab.txt` for exact WordPiece sizing; without it, the command uses a
-deterministic conservative counter and still enforces the configured hard window.
+local `vocab.txt` for exact WordPiece sizing; without it, the command uses an
+approximate counter that can underestimate token counts.
+
+## Generate local embeddings
+
+The pinned tokenizer assets are checked in under `models/bge-small-en-v1.5/`;
+the 133 MB ONNX weights stay outside Git. Install the weight file and verify its
+digest with:
+
+```sh
+./scripts/setup-bge-model.sh
+```
+
+Then run the synthetic-vault demonstration:
+
+```sh
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- \
+  embeddings --config knowledge.milestone2.yaml > embeddings.ndjson
+```
+
+Each NDJSON line contains chunk IDs and provenance, exact token count, model
+identity, dimensions, and vector. This command explicitly writes note-derived
+vectors to stdout; summaries and safe diagnostics go to stderr. It does not start
+Qdrant or make network requests. `embeddings` requires the pinned local
+`embedding.modelPath` and `embedding.tokenizerPath` assets and checks their
+digests before inference.
+
+The tokenizer also supplies chunk token counts during embedding generation.
+Without tokenizer assets, `chunks` remains available for inspection, but its
+approximate counter cannot guarantee the model input limit. The sample vault
+covers long prose splitting, code, tables, Unicode, opt-out, and empty notes.
+
+```sh
+dotnet test tests/Knowledge.Embeddings.Tests/Knowledge.Embeddings.Tests.csproj
+dotnet test tests/Knowledge.Embeddings.IntegrationTests/Knowledge.Embeddings.IntegrationTests.csproj
+```
+
+The real-model integration project is separate from the asset-free solution test
+suite. It needs the installed ONNX file and checks token IDs and vectors against a
+synthetic Transformers reference fixture. The
+`scripts/generate-bge-reference.py` script records how to reproduce the fixture
+from the pinned PyTorch checkpoint. On Python 3.12, install the pinned reference
+dependencies and regenerate it with:
+
+```sh
+python3.12 -m venv /tmp/bge-reference
+/tmp/bge-reference/bin/pip install -r scripts/requirements-bge-reference.txt
+/tmp/bge-reference/bin/hf download BAAI/bge-small-en-v1.5 model.safetensors \
+  --revision 5c38ec7c405ec4b44b94cc5a9bb96e735b38267a \
+  --local-dir /tmp/bge-reference-assets
+/tmp/bge-reference/bin/python scripts/generate-bge-reference.py \
+  --weights /tmp/bge-reference-assets/model.safetensors
+```
+
+Reference dependencies and checkpoint are only needed to regenerate the fixture;
+they are not needed at runtime.
 
 ## Configuration and logging
 
@@ -147,24 +201,25 @@ queries. No secrets or cloud embedding service are required.
 dotnet test Knowledge.sln --no-build --no-restore
 ```
 
-The tests cover YAML loading, every configuration section, validation, environment
-precedence, relative paths, and CLI errors. They require no Docker or model assets.
-The live integration check is starting Compose and running status as shown above.
+`Knowledge.Indexer.Tests` and `Knowledge.Embeddings.Tests` require no model assets.
+The real-model integration suite requires the pinned ONNX file installed with the
+setup script; no Docker service is required for embeddings.
 
 ## Project boundaries
 
 - `Knowledge.Core`: dependency-free domain boundary; no unused contracts added.
 - `Knowledge.Markdown`: vault discovery, frontmatter/Markdown parsing, normalization,
   wikilink extraction, and structure-aware deterministic chunking.
-- `Knowledge.Embeddings`: library shell for later local ONNX inference.
+- `Knowledge.Embeddings`: pinned BERT WordPiece tokenizer and local ONNX inference.
 - `Knowledge.Qdrant`: read-only gRPC health probe; references Core.
 - `Knowledge.Indexer`: executable named `knowledge`; owns configuration and CLI.
 - `Knowledge.Mcp`: library shell; no MCP host or SDK in this milestone.
 - `tests/Knowledge.Indexer.Tests`: configuration and CLI tests.
 
-Infrastructure libraries reference Core, which references none of them. No Core
-abstractions were needed in Milestone 0, so no placeholder domain tests were added.
+Infrastructure libraries reference Core, which remains independent of tokenizer,
+ONNX, Markdown parser, and Qdrant types.
 
-See `docs/09-milestone-0-implementation-notes.md` for foundation decisions and
-`docs/10-milestone-1-implementation-plan.md` for the ingestion contract and
-validation deferred to model assets and vectors.
+See `docs/09-milestone-0-implementation-notes.md` for foundation decisions,
+`docs/10-milestone-1-implementation-plan.md` for the ingestion contract, and
+`docs/11-milestone-2-implementation-plan.md` for embedding behavior and
+verification evidence.

@@ -40,6 +40,7 @@ embedding:
   provider: onnx
   model: BAAI/bge-small-en-v1.5
   dimensions: 384
+  modelPath: ./models/bge-small-en-v1.5/onnx/model.onnx
   tokenizerPath: ./models/bge-small-en-v1.5/vocab.txt
 
 qdrant:
@@ -89,10 +90,14 @@ The following settings are index-defining:
 - normalization behavior
 - embedding schema version
 
-`tokenizerPath` is an optional local path to the vocabulary file shipped with the
-selected model. When configured, Milestone 1 uses it for WordPiece token counts;
-the path must exist and is resolved relative to the configuration file. Model
-assets are never downloaded by the indexer.
+`modelPath` and `tokenizerPath` are paths to pinned local model and vocabulary
+assets. Both resolve relative to the configuration file and may be overridden by
+`KNOWLEDGE_EMBEDDING__MODELPATH` and `KNOWLEDGE_EMBEDDING__TOKENIZERPATH`.
+`knowledge embeddings` requires both paths and verifies all expected asset
+digests before inference. `knowledge status` does not load the assets. `knowledge
+chunks` may run without them, but its approximate token count does not guarantee
+the model input limit. Model assets are never downloaded at runtime; use
+`scripts/setup-bge-model.sh` to install the pinned ONNX weight file.
 
 Changing them requires rebuild.
 

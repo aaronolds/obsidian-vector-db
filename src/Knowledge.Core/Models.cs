@@ -12,6 +12,31 @@ public interface ITokenCounter
     int Count(string text, bool includeSpecialTokens = true);
 }
 
+public interface IEmbeddingService
+{
+    Task<EmbeddingResult> EmbedAsync(string text, CancellationToken cancellationToken = default);
+}
+
+public sealed record EmbeddingResult(
+    ReadOnlyMemory<float> Vector,
+    string Provider,
+    string Model,
+    int Dimensions);
+
+public static class EmbeddingTextFormatter
+{
+    public static string Format(string title, IReadOnlyList<string> headingPath,
+        IReadOnlyList<string> tags, string content)
+    {
+        var builder = new StringBuilder($"Title: {title}\n");
+        if (headingPath.Count > 0)
+            builder.Append("Section: ").Append(string.Join(" > ", headingPath)).Append('\n');
+        if (tags.Count > 0)
+            builder.Append("Tags: ").Append(string.Join(", ", tags)).Append('\n');
+        return builder.Append('\n').Append(content).ToString();
+    }
+}
+
 public sealed record KnowledgeDocument(
     string VaultId,
     string DocumentId,

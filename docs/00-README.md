@@ -36,6 +36,7 @@ The documentation in this package reflects the decisions reached during architec
 | `06-security-and-privacy.md` | Local-first security boundary and privacy requirements |
 | `07-configuration-reference.md` | Proposed configuration model |
 | `08-open-questions-and-assumptions.md` | Ambiguities, defaults, and deferred decisions |
+| `11-milestone-2-implementation-plan.md` | Local embedding implementation sequence and verification gates |
 | `adr/` | Architecture Decision Records |
 
 ## Initial technology baseline
