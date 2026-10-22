@@ -5,7 +5,6 @@ namespace Knowledge.Indexer.Tests;
 public sealed class CliTests
 {
     [Theory]
-    [InlineData("index")]
     [InlineData("rebuild")]
     [InlineData("search")]
     [InlineData("watch")]
@@ -25,6 +24,16 @@ public sealed class CliTests
         using var error = new StringWriter();
         Assert.Equal(0, await KnowledgeCli.RunAsync(["embeddings", "--help"], output, error));
         Assert.Contains("knowledge embeddings", output.ToString());
+        Assert.Equal("", error.ToString());
+    }
+
+    [Fact]
+    public async Task Index_help_is_available_without_model_assets_or_qdrant()
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        Assert.Equal(0, await KnowledgeCli.RunAsync(["index", "--help"], output, error));
+        Assert.Contains("knowledge index", output.ToString());
         Assert.Equal("", error.ToString());
     }
 

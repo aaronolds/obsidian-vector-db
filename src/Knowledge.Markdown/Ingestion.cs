@@ -39,6 +39,25 @@ public sealed record IngestionResult(
     int DocumentsProcessed,
     int DocumentsSkipped);
 
+public sealed record VaultFile(string FullPath, string RelativePath, string RootPath);
+
+public sealed record VaultScanResult(
+    IReadOnlyList<VaultFile> Files,
+    IReadOnlyList<IngestionDiagnostic> Diagnostics,
+    bool IsComplete);
+
+public sealed record SourceSnapshot(VaultFile File, byte[] Bytes, DateTimeOffset ModifiedUtc)
+{
+    public string FileHash => KnowledgeIdentity.FileHash(Bytes);
+}
+
+public enum DocumentIngestionStatus { Indexed, OptedOut, Empty }
+
+public sealed record DocumentIngestionResult(
+    DocumentIngestionStatus Status,
+    KnowledgeDocument Document,
+    IReadOnlyList<KnowledgeChunk> Chunks);
+
 public sealed class MarkdownIngestor
 {
     private static readonly Regex WikiLinkRegex = new(@"\[\[([^\]|#]+?)(?:\|([^\]]+))?\]\]", RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -46,32 +65,124 @@ public sealed class MarkdownIngestor
 
     public MarkdownIngestor(ITokenCounter? tokens = null) => _tokens = tokens ?? new ApproximateBertTokenCounter();
 
+    public VaultScanResult Discover(MarkdownIngestionOptions options, CancellationToken cancellationToken = default)
+    {
+        var diagnostics = new List<IngestionDiagnostic>();
+        var files = new List<VaultFile>();
+        if (!Directory.Exists(options.RootPath))
+        {
+            diagnostics.Add(new IngestionDiagnostic("", "vault-missing", "The configured vault directory does not exist."));
+            return new VaultScanResult(files, diagnostics, false);
+        }
+
+        var root = Path.GetFullPath(options.RootPath);
+        var rootInfo = ResolveDirectory(new DirectoryInfo(root));
+        root = Path.GetFullPath(rootInfo.FullName);
+        var resolvedRoot = rootInfo;
+        var pathComparer = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparer.OrdinalIgnoreCase
+            : StringComparer.Ordinal;
+        var visited = new HashSet<string>(pathComparer);
+        var complete = true;
+        try
+        {
+            Visit(rootInfo, "");
+        }
+        catch (OperationCanceledException) { throw; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            diagnostics.Add(new IngestionDiagnostic("", "scan-failed", "The vault could not be completely enumerated."));
+            complete = false;
+        }
+
+        files.Sort((left, right) => StringComparer.Ordinal.Compare(left.RelativePath, right.RelativePath));
+        return new VaultScanResult(files, diagnostics, complete);
+
+        void Visit(DirectoryInfo directory, string relativeDirectory)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var physical = ResolveDirectory(directory);
+            if (!IsInside(resolvedRoot, physical)) return;
+            if (!visited.Add(Path.GetFullPath(physical.FullName))) return;
+
+            FileSystemInfo[] children;
+            try { children = physical.GetFileSystemInfos(); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                diagnostics.Add(new IngestionDiagnostic(relativeDirectory, "scan-failed", "A vault directory could not be enumerated."));
+                complete = false;
+                return;
+            }
+
+            foreach (var child in children.OrderBy(item => item.Name, StringComparer.Ordinal))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var childRelative = NormalizePath(Path.Combine(relativeDirectory, child.Name));
+                if (child is DirectoryInfo childDirectory)
+                {
+                    Visit(childDirectory, childRelative);
+                    continue;
+                }
+
+                if (!child.Name.EndsWith(".md", StringComparison.OrdinalIgnoreCase)) continue;
+                var relative = childRelative;
+                if (!MatchesAny(relative, options.Include) || MatchesAny(relative, options.Exclude)) continue;
+                // GetFileSystemInfos can return child paths through a different alias
+                // (for example /var versus /private/var on macOS). Build the child
+                // path from the already-resolved parent before resolving file links.
+                var candidate = new FileInfo(Path.Combine(physical.FullName, child.Name));
+                var resolved = candidate.ResolveLinkTarget(true) ?? candidate;
+                if (!IsInside(resolvedRoot, resolved)) continue;
+                files.Add(new VaultFile(resolved.FullName, relative, root));
+            }
+        }
+    }
+
+    public SourceSnapshot ReadSnapshot(VaultFile file)
+    {
+        var info = new FileInfo(file.FullPath);
+        var physical = info.ResolveLinkTarget(true) ?? info;
+        if (!IsInside(new DirectoryInfo(file.RootPath), physical))
+            throw new UnauthorizedAccessException("The resolved note path is outside the configured vault.");
+        info = new FileInfo(physical.FullName);
+        var modified = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
+        var bytes = File.ReadAllBytes(file.FullPath);
+        return new SourceSnapshot(file, bytes, modified);
+    }
+
+    public DocumentIngestionResult IngestDocument(SourceSnapshot snapshot, MarkdownIngestionOptions options)
+    {
+        var text = new UTF8Encoding(false, true).GetString(snapshot.Bytes);
+        var parsed = Parse(text, snapshot.File.RelativePath, options.FrontmatterOptOutField);
+        var documentId = KnowledgeIdentity.DocumentId(options.VaultId, snapshot.File.RelativePath);
+        var document = new KnowledgeDocument(options.VaultId, documentId, snapshot.File.RelativePath, parsed.Title,
+            parsed.Tags, parsed.Aliases, parsed.Links, snapshot.FileHash, snapshot.ModifiedUtc);
+        if (parsed.OptOut)
+            return new DocumentIngestionResult(DocumentIngestionStatus.OptedOut, document, []);
+        var chunks = Chunk(document, parsed, options);
+        return new DocumentIngestionResult(chunks.Count == 0 ? DocumentIngestionStatus.Empty : DocumentIngestionStatus.Indexed,
+            document, chunks);
+    }
+
     public IngestionResult ReadVault(MarkdownIngestionOptions options, CancellationToken cancellationToken = default)
     {
+        var scan = Discover(options, cancellationToken);
         var chunks = new List<KnowledgeChunk>();
-        var diagnostics = new List<IngestionDiagnostic>();
+        var diagnostics = scan.Diagnostics.ToList();
         var processed = 0;
         var skipped = 0;
-        foreach (var file in Discover(options, diagnostics, cancellationToken))
+        foreach (var file in scan.Files)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var bytes = File.ReadAllBytes(file.FullPath);
-                var text = new UTF8Encoding(false, true).GetString(bytes);
-                var parsed = Parse(text, file.RelativePath, options.FrontmatterOptOutField);
-                if (parsed.OptOut)
+                var document = IngestDocument(ReadSnapshot(file), options);
+                if (document.Status == DocumentIngestionStatus.OptedOut) skipped++;
+                else
                 {
-                    skipped++;
-                    continue;
+                    processed++;
+                    chunks.AddRange(document.Chunks);
                 }
-                var fileHash = KnowledgeIdentity.FileHash(bytes);
-                var modified = new DateTimeOffset(File.GetLastWriteTimeUtc(file.FullPath), TimeSpan.Zero);
-                var documentId = KnowledgeIdentity.DocumentId(options.VaultId, file.RelativePath);
-                var document = new KnowledgeDocument(options.VaultId, documentId, file.RelativePath, parsed.Title,
-                    parsed.Tags, parsed.Aliases, parsed.Links, fileHash, modified);
-                chunks.AddRange(Chunk(document, parsed, options));
-                processed++;
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or DecoderFallbackException or YamlException or FormatException)
             {
@@ -81,32 +192,19 @@ public sealed class MarkdownIngestor
         return new IngestionResult(chunks, diagnostics, processed, skipped);
     }
 
-    private IEnumerable<(string FullPath, string RelativePath)> Discover(MarkdownIngestionOptions options, List<IngestionDiagnostic> diagnostics, CancellationToken cancellationToken)
-    {
-        var root = Path.GetFullPath(options.RootPath);
-        if (!Directory.Exists(root))
-        {
-            diagnostics.Add(new IngestionDiagnostic("", "vault-missing", "The configured vault directory does not exist."));
-            yield break;
-        }
-        var files = Directory.EnumerateFiles(root, "*.md", SearchOption.AllDirectories)
-            .Select(path => (FullPath: path, RelativePath: NormalizePath(Path.GetRelativePath(root, path))))
-            .Where(x => IsInside(root, x.FullPath) && MatchesAny(x.RelativePath, options.Include) && !MatchesAny(x.RelativePath, options.Exclude))
-            .OrderBy(x => x.RelativePath, StringComparer.Ordinal);
-        foreach (var file in files)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            yield return file;
-        }
-    }
+    private static DirectoryInfo ResolveDirectory(DirectoryInfo directory) =>
+        (DirectoryInfo?)directory.ResolveLinkTarget(true) ?? directory;
 
-    private static bool IsInside(string root, string path)
+    private static bool IsInside(DirectoryInfo root, FileSystemInfo path)
     {
-        var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-        var full = Path.GetFullPath(path);
-        if (!full.StartsWith(fullRoot, StringComparison.Ordinal)) return false;
-        var resolved = File.ResolveLinkTarget(full, true);
-        return resolved is null || Path.GetFullPath(resolved.FullName).StartsWith(fullRoot, StringComparison.Ordinal);
+        var fullRoot = Path.GetFullPath(root.FullName).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var full = Path.GetFullPath(path.FullName);
+        if (string.Equals(full.TrimEnd(Path.DirectorySeparatorChar), fullRoot.TrimEnd(Path.DirectorySeparatorChar),
+                OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            return true;
+        return full.StartsWith(fullRoot, OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal);
     }
 
     private static bool MatchesAny(string path, IReadOnlyList<string> patterns) => patterns.Any(pattern => GlobMatch(path, pattern));

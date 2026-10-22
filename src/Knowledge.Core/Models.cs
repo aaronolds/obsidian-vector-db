@@ -23,6 +23,38 @@ public sealed record EmbeddingResult(
     string Model,
     int Dimensions);
 
+public sealed record IndexedChunkMetadata(
+    string PointId,
+    string VaultId,
+    string DocumentId,
+    string ChunkId,
+    string RelativePath,
+    string FileHash,
+    int ChunkOrdinal,
+    int SchemaVersion,
+    string EmbeddingProvider,
+    string EmbeddingModel,
+    int EmbeddingDimensions,
+    int EmbeddingSchemaVersion,
+    int DocumentChunkCount,
+    string IndexProfile);
+
+public sealed record KnowledgeIndexPoint(
+    KnowledgeChunk Chunk,
+    IReadOnlyList<string> Aliases,
+    EmbeddingResult Embedding,
+    Guid PointId,
+    int DocumentChunkCount,
+    string IndexProfile);
+
+public interface IKnowledgeIndexStore
+{
+    Task EnsureCollectionAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<IndexedChunkMetadata>> GetIndexedChunksAsync(string vaultId, CancellationToken cancellationToken = default);
+    Task DeleteDocumentAsync(string vaultId, string documentId, CancellationToken cancellationToken = default);
+    Task UpsertAsync(IReadOnlyList<KnowledgeIndexPoint> points, CancellationToken cancellationToken = default);
+}
+
 public static class EmbeddingTextFormatter
 {
     public static string Format(string title, IReadOnlyList<string> headingPath,

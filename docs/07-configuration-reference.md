@@ -93,17 +93,22 @@ The following settings are index-defining:
 `modelPath` and `tokenizerPath` are paths to pinned local model and vocabulary
 assets. Both resolve relative to the configuration file and may be overridden by
 `KNOWLEDGE_EMBEDDING__MODELPATH` and `KNOWLEDGE_EMBEDDING__TOKENIZERPATH`.
-`knowledge embeddings` requires both paths and verifies all expected asset
-digests before inference. `knowledge status` does not load the assets. `knowledge
-chunks` may run without them, but its approximate token count does not guarantee
-the model input limit. Model assets are never downloaded at runtime; use
+`knowledge embeddings` and `knowledge index` require both paths and verify all
+expected asset digests before inference. `knowledge status` does not load the
+assets. `knowledge chunks` may run without them, but its approximate token count
+does not guarantee the model input limit. Model assets are never downloaded at runtime; use
 `scripts/setup-bge-model.sh` to install the pinned ONNX weight file.
 
-Changing them requires rebuild.
+Changing index-defining settings requires a fresh collection in Milestone 3;
+Milestone 5 adds the `rebuild` command. The indexer stores an index-profile
+fingerprint in each chunk payload and stops before point writes if an existing
+index has a different profile.
 
 ### Qdrant
 
-The collection is derived state.
+The collection is derived state. `knowledge index` creates a missing collection
+using a single unnamed 384-dimensional cosine vector and checks existing vector
+layout before writing. It does not recreate an incompatible collection.
 
 Changing the collection name does not migrate data automatically.
 

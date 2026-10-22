@@ -4,10 +4,15 @@ A local-first .NET 10 knowledge platform with authoritative Markdown and a
 rebuildable Qdrant index. The architecture in `docs/` and decisions in `docs/adr/`
 govern implementation.
 
-**Implemented: Milestone 2.** The executable loads and validates configuration,
-reports vault existence and Qdrant connectivity, scans and chunks Markdown, and
-generates local BGE-small embeddings through ONNX Runtime. Collection creation,
-indexing, retrieval, watching, and MCP hosting remain deferred.
+**Milestone 3 implementation:** The executable loads and validates configuration,
+reports vault existence and Qdrant connectivity, scans and chunks Markdown,
+generates local BGE-small embeddings through ONNX Runtime, and incrementally
+indexes documents in local Qdrant. Search, rebuild, watching, and MCP hosting
+remain deferred. The offline test suites pass; the live Qdrant/ONNX acceptance
+integration test and two-pass sample-vault CLI check pass. The selected-vault
+check confirmed 400 unchanged documents and zero embedding calls on its second
+pass; one malformed-frontmatter note kept the runs incomplete. The temporary
+collection was removed and no notes were changed.
 
 ## Prerequisites
 
@@ -33,9 +38,9 @@ docker compose -f docker/docker-compose.yml ps
 Compose pins Qdrant to `v1.19.2`, stores data in the named
 `knowledge-local_qdrant-storage` volume, and publishes only `127.0.0.1:6334`
 (gRPC). REST, the dashboard, and cluster ports are not published. Telemetry is
-disabled. There are no credentials or initialization scripts; collection creation
-will belong to the Indexer in Milestone 3. Startup can take a few seconds; rerun
-status if the service is not ready yet.
+disabled. There are no credentials or initialization scripts. The `index` command
+creates and validates its collection. Startup can take a few seconds; rerun status
+if the service is not ready yet.
 
 Stop the service while retaining its data:
 
@@ -140,6 +145,50 @@ Without tokenizer assets, `chunks` remains available for inspection, but its
 approximate counter cannot guarantee the model input limit. The sample vault
 covers long prose splitting, code, tables, Unicode, opt-out, and empty notes.
 
+## Index the vault
+
+`knowledge index` requires the pinned local ONNX model and tokenizer assets, a
+readable vault, and Qdrant running locally. Install the ONNX weights with
+`./scripts/setup-bge-model.sh`, start Qdrant as above, and run:
+
+```sh
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- \
+  index --config knowledge.milestone3.yaml
+```
+
+The sample config uses a dedicated `obsidian-knowledge-milestone3` collection.
+For your own vault, set `KNOWLEDGE_VAULT__PATH` and choose a collection in a local
+config file. The command creates the collection with one unnamed 384-dimensional
+cosine vector and indexes eligible Markdown chunks. It hashes note bytes, uses
+deterministic chunk IDs, and stores canonical chunk/document metadata in Qdrant.
+Matching documents are skipped only when every indexed chunk is present and
+consistent. A second unchanged run therefore reports zero embedding calls.
+Changes replace the whole document; deletions, exclusions, and opt-outs remove
+its points. Empty notes create no points.
+
+Replacement deletes a changed document's prior points before parsing and writing
+its replacement, as specified by ADR-009. Qdrant has no transaction across those
+operations, so an interrupted replacement can temporarily leave a note absent or
+partially indexed. The next `index` run detects the incomplete chunk count and
+retries it. The indexer does not change Markdown. Run one `index` process at a time
+against a collection.
+
+The index profile is stored in each chunk payload. If the model, schema, tokenizer,
+chunker, or embedding-affecting settings change, indexing stops before point
+mutations and requests a fresh collection. Milestone 5 will add `rebuild`.
+Discovery must complete before point changes; a missing or unreadable vault cannot
+trigger stale-point deletion. Operational output contains metadata only, never
+note text or vectors.
+
+Exit code `0` means the run completed, `1` means indexing was incomplete, `2` means
+usage/configuration/assets/profile were invalid, and `130` means the run was
+cancelled.
+
+The `Knowledge.Indexer.Tests` suite exercises synchronization and retry behavior
+without Docker or model assets. The explicitly invoked
+`tests/Knowledge.Indexing.IntegrationTests` project exercises real ONNX and Qdrant
+together; it requires both services and the pinned model assets.
+
 ```sh
 dotnet test tests/Knowledge.Embeddings.Tests/Knowledge.Embeddings.Tests.csproj
 dotnet test tests/Knowledge.Embeddings.IntegrationTests/Knowledge.Embeddings.IntegrationTests.csproj
@@ -211,7 +260,7 @@ setup script; no Docker service is required for embeddings.
 - `Knowledge.Markdown`: vault discovery, frontmatter/Markdown parsing, normalization,
   wikilink extraction, and structure-aware deterministic chunking.
 - `Knowledge.Embeddings`: pinned BERT WordPiece tokenizer and local ONNX inference.
-- `Knowledge.Qdrant`: read-only gRPC health probe; references Core.
+- `Knowledge.Qdrant`: gRPC health probe and index storage adapter; references Core.
 - `Knowledge.Indexer`: executable named `knowledge`; owns configuration and CLI.
 - `Knowledge.Mcp`: library shell; no MCP host or SDK in this milestone.
 - `tests/Knowledge.Indexer.Tests`: configuration and CLI tests.
@@ -222,4 +271,5 @@ ONNX, Markdown parser, and Qdrant types.
 See `docs/09-milestone-0-implementation-notes.md` for foundation decisions,
 `docs/10-milestone-1-implementation-plan.md` for the ingestion contract, and
 `docs/11-milestone-2-implementation-plan.md` for embedding behavior and
+`docs/12-milestone-3-implementation-plan.md` for incremental indexing and its
 verification evidence.

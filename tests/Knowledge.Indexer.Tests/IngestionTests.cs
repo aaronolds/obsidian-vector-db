@@ -56,6 +56,23 @@ public sealed class IngestionTests
     }
 
     [Fact]
+    public void Discovery_skips_external_symlinks_and_terminates_internal_cycles()
+    {
+        using var vault = new TemporaryVault();
+        using var external = new TemporaryVault();
+        vault.Write("Inside.md", "# Inside\nIncluded.");
+        external.Write("Outside.md", "# Outside\nNot included.");
+        Directory.CreateSymbolicLink(Path.Combine(vault.Path, "external"), external.Path);
+        Directory.CreateSymbolicLink(Path.Combine(vault.Path, "cycle"), vault.Path);
+
+        var result = new MarkdownIngestor().Discover(new MarkdownIngestionOptions(
+            "primary", vault.Path, ["**/*.md"], [], "ai-index", 300, 400, 40));
+
+        Assert.True(result.IsComplete);
+        Assert.Equal("Inside.md", Assert.Single(result.Files).RelativePath);
+    }
+
+    [Fact]
     public void Large_prose_is_split_without_losing_all_content()
     {
         using var vault = new TemporaryVault();
@@ -93,5 +110,8 @@ internal sealed class TemporaryVault : IDisposable
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(full)!);
         File.WriteAllText(full, content);
     }
-    public void Dispose() => Directory.Delete(Path, true);
+    public void Dispose()
+    {
+        if (Directory.Exists(Path)) Directory.Delete(Path, true);
+    }
 }

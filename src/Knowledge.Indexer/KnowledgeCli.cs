@@ -8,16 +8,19 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.ML.OnnxRuntime;
+using Grpc.Core;
+using Qdrant.Client;
+using Knowledge.Indexer.Indexing;
 
 namespace Knowledge.Indexer;
 
 public static class KnowledgeCli
 {
-    private const string Usage = "Usage: knowledge status [--config <path>] | knowledge chunks [--config <path>] | knowledge embeddings [--config <path>]";
+    private const string Usage = "Usage: knowledge status [--config <path>] | knowledge chunks [--config <path>] | knowledge embeddings [--config <path>] | knowledge index [--config <path>]";
 
     public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error, CancellationToken cancellationToken = default)
     {
-        if (args is ["--help"] or ["-h"] or ["status", "--help"] or ["chunks", "--help"] or ["embeddings", "--help"])
+        if (args is ["--help"] or ["-h"] or ["status", "--help"] or ["chunks", "--help"] or ["embeddings", "--help"] or ["index", "--help"])
         {
             await output.WriteLineAsync(Usage);
             return 0;
@@ -27,6 +30,8 @@ public static class KnowledgeCli
             return await RunChunksAsync(args[1..], output, error, cancellationToken);
         if (command == "embeddings")
             return await RunEmbeddingsAsync(args[1..], output, error, cancellationToken);
+        if (command == "index")
+            return await RunIndexAsync(args[1..], output, error, cancellationToken);
 
         var configPath = args switch
         {
@@ -102,6 +107,84 @@ public static class KnowledgeCli
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
             await error.WriteLineAsync("Status cancelled.");
+            return 130;
+        }
+    }
+
+    private static async Task<int> RunIndexAsync(string[] args, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    {
+        var configPath = args switch
+        {
+            [] => "knowledge.yaml",
+            ["--config", var path] when !string.IsNullOrWhiteSpace(path) => path,
+            _ => null
+        };
+        if (configPath is null)
+        {
+            await error.WriteLineAsync(Usage);
+            return 2;
+        }
+
+        try
+        {
+            using var configuration = KnowledgeConfiguration.Load(configPath);
+            var services = new ServiceCollection();
+            services.AddKnowledgeOptions(configuration, configPath);
+            using var provider = services.BuildServiceProvider();
+            var options = provider.GetRequiredService<IOptions<KnowledgeOptions>>().Value;
+            if (string.IsNullOrWhiteSpace(options.Embedding.ModelPath) || string.IsNullOrWhiteSpace(options.Embedding.TokenizerPath))
+                throw new EmbeddingAssetException("knowledge index requires embedding.modelPath and embedding.tokenizerPath for the pinned local BGE model.");
+
+            using var embeddings = new OnnxEmbeddingService(options.Embedding.ModelPath, options.Embedding.TokenizerPath);
+            using var client = new QdrantClient(options.Qdrant.Host, options.Qdrant.Port, grpcTimeout: TimeSpan.FromSeconds(10));
+            var store = new QdrantKnowledgeIndexStore(client, options.Qdrant.Collection);
+            var coordinator = new IndexCoordinator(new MarkdownIngestor(embeddings), store, embeddings, options);
+            var result = await coordinator.IndexAsync(cancellationToken);
+            foreach (var diagnostic in result.Diagnostics)
+                await error.WriteLineAsync($"Index error [{diagnostic.Code}] {diagnostic.RelativePath}: {diagnostic.Message}");
+
+            await output.WriteLineAsync($"Scanned: {result.Scanned}; indexed: {result.Indexed}; unchanged: {result.Unchanged}; opted out: {result.OptedOut}; empty: {result.Empty}; stale deleted: {result.StaleDeleted}; failed: {result.Failed}");
+            await output.WriteLineAsync($"Chunks written: {result.ChunksWritten}; chunks deleted: {result.ChunksDeleted}; embedding calls: {result.EmbeddingCalls}; embedding time: {result.EmbeddingDuration.TotalMilliseconds:F0} ms; Qdrant time: {result.QdrantDuration.TotalMilliseconds:F0} ms");
+            return result.IsComplete ? 0 : 1;
+        }
+        catch (OptionsValidationException ex)
+        {
+            foreach (var failure in ex.Failures) await error.WriteLineAsync($"Configuration error: {failure}");
+            return 2;
+        }
+        catch (KnowledgeConfigurationException ex)
+        {
+            await error.WriteLineAsync($"Configuration error: {ex.Message}");
+            return 2;
+        }
+        catch (IndexCollectionException ex)
+        {
+            await error.WriteLineAsync($"Index compatibility error: {ex.Message}");
+            return 2;
+        }
+        catch (EmbeddingAssetException ex)
+        {
+            await error.WriteLineAsync($"Embedding asset error: {ex.Message}");
+            return 2;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await error.WriteLineAsync("Indexing cancelled; run index again to repair any incomplete document.");
+            return 130;
+        }
+        catch (RpcException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            await error.WriteLineAsync($"Qdrant error [{ex.StatusCode}]: indexing did not complete; run index again to retry.");
+            return 1;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            await error.WriteLineAsync("Configuration or local embedding assets could not be read.");
+            return 2;
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            await error.WriteLineAsync("Indexing cancelled; run index again to repair any incomplete document.");
             return 130;
         }
     }

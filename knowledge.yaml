@@ -23,8 +23,8 @@ embedding:
   provider: onnx
   model: BAAI/bge-small-en-v1.5
   dimensions: 384
-  # Optional local BGE assets. `chunks` can run without them; `embeddings`
-  # requires both pinned paths.
+  # Optional local BGE assets. `chunks` can run without them; `embeddings` and
+  # `index` require both pinned paths.
   # tokenizerPath: ./models/bge-small-en-v1.5/vocab.txt
   # modelPath: ./models/bge-small-en-v1.5/onnx/model.onnx
 
