@@ -1,4 +1,4 @@
 torch==2.8.0
-transformers==4.57.1
+transformers==5.20.2
 tokenizers==0.22.2
 safetensors==0.7.0
