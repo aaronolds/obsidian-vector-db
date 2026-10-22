@@ -31,11 +31,6 @@ public sealed class IndexCoordinator(
     IEmbeddingService embeddings,
     KnowledgeOptions options)
 {
-    private const int SchemaVersion = 1;
-    private const int EmbeddingSchemaVersion = 1;
-    private const string Model = "BAAI/bge-small-en-v1.5";
-    private const string Provider = "onnx";
-
     public async Task<IndexingSummary> IndexAsync(CancellationToken cancellationToken = default)
     {
         var settings = new MarkdownIngestionOptions(options.Vault.Id, options.Vault.Path,
@@ -200,8 +195,10 @@ public sealed class IndexCoordinator(
     {
         foreach (var chunk in chunks)
         {
-            if (chunk.SchemaVersion != SchemaVersion || chunk.EmbeddingSchemaVersion != EmbeddingSchemaVersion ||
-                chunk.EmbeddingProvider != Provider || chunk.EmbeddingModel != Model ||
+            if (chunk.SchemaVersion != KnowledgeIndexSchema.SchemaVersion ||
+                chunk.EmbeddingSchemaVersion != KnowledgeIndexSchema.EmbeddingSchemaVersion ||
+                chunk.EmbeddingProvider != KnowledgeIndexSchema.EmbeddingProvider ||
+                chunk.EmbeddingModel != KnowledgeIndexSchema.EmbeddingModel ||
                 chunk.EmbeddingDimensions != options.Embedding.Dimensions)
             {
                 reason = "Indexed payload uses an incompatible schema or embedding model; select a fresh collection.";

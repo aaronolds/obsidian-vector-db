@@ -13,3 +13,8 @@ configuration are pinned and committed under `models/bge-small-en-v1.5/`. The
 
 `ApproximateBertTokenCounter` remains available to the asset-free `chunks`
 inspection command. It is an estimate and cannot guarantee model-window fit.
+
+Milestone 4 adds `BgeQueryEmbeddingService`. It applies the pinned English
+passage-retrieval instruction only to queries, checks the fully formatted input
+against the 512-token limit, and delegates inference to `IEmbeddingService`.
+Document embedding text and `OnnxEmbeddingService.EmbedAsync` remain unchanged.

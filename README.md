@@ -7,8 +7,9 @@ govern implementation.
 **Milestone 3 complete:** The executable loads and validates configuration,
 reports vault existence and Qdrant connectivity, scans and chunks Markdown,
 generates local BGE-small embeddings through ONNX Runtime, and incrementally
-indexes documents in local Qdrant. Search, rebuild, watching, and MCP hosting
-remain deferred. The offline test suites pass; the live Qdrant/ONNX acceptance
+indexes documents in local Qdrant. Dense CLI search is implemented in Milestone 4;
+rebuild, benchmark evaluation, watching, and MCP hosting remain deferred. The
+offline test suites pass; the live Qdrant/ONNX acceptance
 integration test and two-pass sample-vault CLI check pass. After fixing a parser
 bug involving fenced YAML examples, the real-vault check passed both runs with
 parser profile v2: 408 notes scanned, 402 indexed, 6 empty, and 3,692 chunks
@@ -185,6 +186,47 @@ note text or vectors.
 Exit code `0` means the run completed, `1` means indexing was incomplete, `2` means
 usage/configuration/assets/profile were invalid, and `130` means the run was
 cancelled.
+
+## Search indexed notes
+
+Milestone 4 adds local dense retrieval over an existing, compatible Qdrant index.
+Install the pinned local model assets, start Qdrant, and index the configured
+vault before searching:
+
+```sh
+./scripts/setup-bge-model.sh
+docker compose -f docker/docker-compose.yml up -d
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- \
+  index --config knowledge.milestone4.yaml
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- \
+  search "How does OBO work?" --config knowledge.milestone4.yaml
+```
+
+The Milestone 4 sample uses its own `obsidian-knowledge-milestone4` collection.
+Retrieval adds the pinned BGE English query instruction, embeds locally, then
+asks Qdrant for dense cosine matches. Search never creates collections or payload
+indexes. If the collection is missing, index it first. The finalized query profile
+uses embedding schema version 2, so a Milestone 3 collection requires a fresh
+collection and a new `index` run before it can be searched; no migration runs
+automatically.
+
+Optional arguments set the result count and exact filters:
+
+```sh
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- \
+  search "Front Door restrictions" --limit 10 --path Architecture/ --tag azure
+```
+
+The default result count is 5 and the configured maximum is 50. Path matching is
+a case-sensitive, literal vault-relative prefix. Tags are exact and case-sensitive;
+repeated `--tag` values require all listed tags. Filters apply inside Qdrant before
+the result limit and every request remains scoped to the configured vault.
+
+Search prints the requested original Markdown and provenance to stdout. Application
+diagnostics go to stderr and contain operational metadata only; queries and note
+content are never logged or repeated in errors. Search reports the last indexed
+state, so run `index` after notes are changed, deleted, excluded, or opted out.
+`rebuild`, benchmark evaluation, and MCP hosting remain future milestones.
 
 The `Knowledge.Indexer.Tests` suite exercises synchronization and retry behavior
 without Docker or model assets. The explicitly invoked

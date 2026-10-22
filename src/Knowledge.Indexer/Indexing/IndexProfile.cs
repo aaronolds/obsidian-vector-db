@@ -14,8 +14,8 @@ public static class IndexProfile
         var profile = new
         {
             profileVersion = 1,
-            schemaVersion = 1,
-            embeddingSchemaVersion = 1,
+            schemaVersion = KnowledgeIndexSchema.SchemaVersion,
+            embeddingSchemaVersion = KnowledgeIndexSchema.EmbeddingSchemaVersion,
             parser = "knowledge-markdown-v2",
             normalizer = "knowledge-markdown-normalizer-v1",
             chunker = "knowledge-structure-chunker-v1",
@@ -38,7 +38,7 @@ public static class IndexProfile
             poolingConfigDigest = BgeAssetManifest.PoolingConfigSha256,
             pooling = "cls",
             normalization = "l2",
-            queryFormatting = "deferred-to-milestone-4"
+            queryFormatting = KnowledgeIndexSchema.QueryFormatting
         };
         return "sha256:" + Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(profile))).ToLowerInvariant();
     }

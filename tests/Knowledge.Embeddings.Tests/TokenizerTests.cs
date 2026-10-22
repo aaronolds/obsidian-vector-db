@@ -1,5 +1,5 @@
-using Knowledge.Core;
 using Knowledge.Embeddings;
+using Knowledge.Core;
 
 namespace Knowledge.Embeddings.Tests;
 

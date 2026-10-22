@@ -7,7 +7,7 @@ namespace Knowledge.Qdrant;
 /// <summary>Qdrant persistence for the indexer. Only callers in the Indexer should write.</summary>
 public sealed class QdrantKnowledgeIndexStore(QdrantClient client, string collection) : IKnowledgeIndexStore
 {
-    private const int Dimensions = 384;
+    private const int Dimensions = KnowledgeIndexSchema.EmbeddingDimensions;
     private const int ScrollPageSize = 256;
     private const int UpsertBatchPoints = 24;
     private const int UpsertBatchBytes = 3 * 1024 * 1024;
@@ -22,11 +22,7 @@ public sealed class QdrantKnowledgeIndexStore(QdrantClient client, string collec
         }
 
         var info = await client.GetCollectionInfoAsync(collection, cancellationToken);
-        var collectionParams = info.Config?.Params;
-        var vectors = collectionParams?.VectorsConfig;
-        if (collectionParams is null || vectors is null || vectors.ConfigCase != VectorsConfig.ConfigOneofCase.Params || vectors.Params is null ||
-            vectors.Params.Size != Dimensions || vectors.Params.Distance != Distance.Cosine ||
-            (collectionParams.SparseVectorsConfig?.Map.Count ?? 0) != 0)
+        if (!QdrantCollectionLayout.IsCompatible(info))
             throw new IndexCollectionException("Qdrant collection has an incompatible vector layout; select a fresh collection.");
 
         foreach (var field in new[] { "vaultId", "documentId" })
@@ -155,7 +151,7 @@ public sealed class QdrantKnowledgeIndexStore(QdrantClient client, string collec
         var chunk = item.Chunk;
         var payload = new Dictionary<string, Value>
         {
-            ["schemaVersion"] = 1,
+            ["schemaVersion"] = KnowledgeIndexSchema.SchemaVersion,
             ["vaultId"] = chunk.VaultId,
             ["documentId"] = chunk.DocumentId,
             ["chunkId"] = chunk.ChunkId,
@@ -180,7 +176,7 @@ public sealed class QdrantKnowledgeIndexStore(QdrantClient client, string collec
             ["embeddingProvider"] = item.Embedding.Provider,
             ["embeddingModel"] = item.Embedding.Model,
             ["embeddingDimensions"] = item.Embedding.Dimensions,
-            ["embeddingSchemaVersion"] = 1,
+            ["embeddingSchemaVersion"] = KnowledgeIndexSchema.EmbeddingSchemaVersion,
             ["documentChunkCount"] = item.DocumentChunkCount,
             ["indexProfile"] = item.IndexProfile
         };
@@ -215,3 +211,17 @@ public sealed class QdrantKnowledgeIndexStore(QdrantClient client, string collec
 }
 
 public sealed class IndexCollectionException(string message) : Exception(message);
+
+public static class QdrantCollectionLayout
+{
+    public static bool IsCompatible(CollectionInfo info)
+    {
+        var collectionParams = info.Config?.Params;
+        var vectors = collectionParams?.VectorsConfig;
+        return collectionParams is not null && vectors is not null &&
+               vectors.ConfigCase == VectorsConfig.ConfigOneofCase.Params && vectors.Params is not null &&
+               vectors.Params.Size == KnowledgeIndexSchema.EmbeddingDimensions &&
+               vectors.Params.Distance == Distance.Cosine &&
+               (collectionParams.SparseVectorsConfig?.Map.Count ?? 0) == 0;
+    }
+}

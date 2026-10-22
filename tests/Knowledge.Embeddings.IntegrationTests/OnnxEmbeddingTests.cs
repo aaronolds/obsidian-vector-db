@@ -110,6 +110,33 @@ public sealed class OnnxEmbeddingTests
         }
     }
 
+    [Fact]
+    public async Task Applies_the_reference_query_instruction_to_the_pinned_query_fixture()
+    {
+        using var service = CreateService();
+        using var fixture = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "TestData", "bge-reference.json")));
+        var testCase = fixture.RootElement.GetProperty("queryCases").EnumerateArray().Single();
+        var query = testCase.GetProperty("query").GetString()!;
+        var text = testCase.GetProperty("text").GetString()!;
+        var tokenizer = new BertWordPieceTokenizer(Path.Combine(Assets, "vocab.txt"));
+        var expectedIds = testCase.GetProperty("inputIds").EnumerateArray().Select(item => item.GetInt32()).ToArray();
+        Assert.Equal(expectedIds, tokenizer.Encode(text));
+
+        var queryService = new BgeQueryEmbeddingService(service, tokenizer);
+        var queryVector = await queryService.EmbedQueryAsync(query);
+        var referenceInputVector = await service.EmbedAsync(text);
+        for (var index = 0; index < queryVector.Vector.Length; index++)
+            Assert.InRange(Math.Abs(queryVector.Vector.Span[index] - referenceInputVector.Vector.Span[index]), 0, 1e-6);
+
+        if (testCase.TryGetProperty("vector", out var referenceVectorElement))
+        {
+            var expectedVector = referenceVectorElement.EnumerateArray().Select(item => item.GetSingle()).ToArray();
+            Assert.Equal(384, expectedVector.Length);
+            for (var index = 0; index < queryVector.Vector.Length; index++)
+                Assert.InRange(Math.Abs(queryVector.Vector.Span[index] - expectedVector[index]), 0, 1e-4);
+        }
+    }
+
     private static OnnxEmbeddingService CreateService()
     {
         var model = Path.Combine(Assets, "onnx", "model.onnx");

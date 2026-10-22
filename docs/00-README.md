@@ -38,6 +38,7 @@ The documentation in this package reflects the decisions reached during architec
 | `08-open-questions-and-assumptions.md` | Ambiguities, defaults, and deferred decisions |
 | `11-milestone-2-implementation-plan.md` | Local embedding implementation sequence and verification gates |
 | `12-milestone-3-implementation-plan.md` | Qdrant indexing implementation sequence, incremental-state rules, and verification gates |
+| `13-milestone-4-implementation-plan.md` | Dense CLI retrieval implementation, query formatting, filters, and verification evidence |
 | `adr/` | Architecture Decision Records |
 
 ## Initial technology baseline

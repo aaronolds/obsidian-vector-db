@@ -19,6 +19,7 @@ TEXTS = [
     "café 東京 X-Azure-FDID",
     "Code: vector = await EmbedAsync(text);",
 ]
+QUERIES = ["How does OBO work?"]
 
 
 def main() -> None:
@@ -55,6 +56,7 @@ def main() -> None:
                 "weightsSha256": digest,
             },
             "cases": [],
+            "queryCases": [],
         }
         for text in TEXTS:
             encoded = tokenizer(text, return_tensors="pt", truncation=False)
@@ -62,6 +64,18 @@ def main() -> None:
                 hidden = model(**encoded).last_hidden_state
                 vector = torch.nn.functional.normalize(hidden[:, 0], p=2, dim=1)[0]
             fixture["cases"].append({
+                "text": text,
+                "inputIds": encoded["input_ids"][0].tolist(),
+                "vector": vector.tolist(),
+            })
+        for query in QUERIES:
+            text = "Represent this sentence for searching relevant passages: " + query
+            encoded = tokenizer(text, return_tensors="pt", truncation=False)
+            with torch.inference_mode():
+                hidden = model(**encoded).last_hidden_state
+                vector = torch.nn.functional.normalize(hidden[:, 0], p=2, dim=1)[0]
+            fixture["queryCases"].append({
+                "query": query,
                 "text": text,
                 "inputIds": encoded["input_ids"][0].tolist(),
                 "vector": vector.tolist(),

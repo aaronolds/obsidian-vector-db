@@ -79,6 +79,22 @@ public sealed class LocalIndexingTests
             Assert.Equal(0, second.EmbeddingCalls);
             Assert.Equal(1, embeddings.Calls);
 
+            var queryEmbeddings = new BgeQueryEmbeddingService(embeddings, new BertWordPieceTokenizer(vocabulary));
+            var profile = IndexProfile.Create(new MarkdownIngestionOptions(options.Vault.Id, options.Vault.Path,
+                options.Index.Include, options.Index.Exclude, options.Index.FrontmatterOptOutField,
+                options.Chunking.TargetTokens, options.Chunking.SoftMaxTokens, options.Chunking.OverlapTokens), options.Embedding);
+            var retriever = new QdrantKnowledgeRetriever(client, collection, "integration", profile, queryEmbeddings);
+            var beforeSearch = await store.GetIndexedChunksAsync("integration");
+            var results = await retriever.SearchAsync(new KnowledgeSearchRequest(
+                "How are vector points saved by the indexer?", Limit: 3, PathPrefix: "Arch", Tags: ["architecture"]));
+            var result = Assert.Single(results);
+            Assert.Equal("Architecture.md", result.Path);
+            Assert.Equal("Local Indexing", result.Title);
+            Assert.Contains("deterministic vector points", result.ContentMarkdown);
+            Assert.Equal(2, embeddings.Calls);
+            Assert.Equal(beforeSearch, await store.GetIndexedChunksAsync("integration"));
+            Assert.Single(await client.RetrieveAsync(collection, otherVaultPointId, withPayload: true, withVectors: false));
+
             File.Delete(Path.Combine(vault.Path, "Architecture.md"));
             var afterDelete = await coordinator.IndexAsync();
             Assert.True(afterDelete.IsComplete);

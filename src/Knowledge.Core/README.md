@@ -1,5 +1,7 @@
 # Knowledge.Core
 
-Dependency-free domain boundary. Milestone 0 needs no domain models or interfaces;
-these will be added here as the ingestion, embedding, and retrieval slices need them.
-Application configuration belongs to the Indexer composition root.
+Dependency-free domain boundary for vault, document, chunk, embedding, indexing,
+and search contracts. Retrieval requests/results and the retriever/query-embedding
+interfaces live here so the CLI and future MCP host can share one contract.
+Application configuration belongs to the Indexer composition root; infrastructure
+types remain in their owning projects.

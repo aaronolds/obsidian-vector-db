@@ -125,6 +125,24 @@ public sealed class IndexingTests
     }
 
     [Fact]
+    public async Task Milestone_3_embedding_schema_requires_a_fresh_collection()
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("Note.md", "# Note\nContent.");
+        var (coordinator, _, store) = Create(vault);
+        await coordinator.IndexAsync();
+        var upserts = store.UpsertCalls;
+        var point = Assert.Single(store.Points);
+        store.Points[point.Key] = point.Value with { EmbeddingSchemaVersion = 1 };
+
+        var error = await Assert.ThrowsAsync<IndexCollectionException>(() => coordinator.IndexAsync());
+
+        Assert.Contains("fresh collection", error.Message);
+        Assert.Equal(upserts, store.UpsertCalls);
+        Assert.Single(store.Points);
+    }
+
+    [Fact]
     public async Task Failed_document_embedding_is_retried_without_a_false_noop()
     {
         using var vault = new TemporaryVault();
@@ -169,6 +187,8 @@ public sealed class IndexingTests
         Assert.Equal(IndexProfile.Create(input, options.Embedding), IndexProfile.Create(input, options.Embedding));
         var changed = input with { TargetTokens = input.TargetTokens + 1 };
         Assert.NotEqual(IndexProfile.Create(input, options.Embedding), IndexProfile.Create(changed, options.Embedding));
+        Assert.Equal(2, KnowledgeIndexSchema.EmbeddingSchemaVersion);
+        Assert.Equal("bge-en-passage-retrieval-instruction-v1", KnowledgeIndexSchema.QueryFormatting);
     }
 
     [Fact]
@@ -240,8 +260,8 @@ public sealed class IndexingTests
             foreach (var item in points)
                 Points[item.PointId] = new IndexedChunkMetadata(item.PointId.ToString(), item.Chunk.VaultId,
                     item.Chunk.DocumentId, item.Chunk.ChunkId, item.Chunk.RelativePath, item.Chunk.FileHash,
-                    item.Chunk.ChunkOrdinal, 1, item.Embedding.Provider, item.Embedding.Model,
-                    item.Embedding.Dimensions, 1, item.DocumentChunkCount, item.IndexProfile);
+                    item.Chunk.ChunkOrdinal, KnowledgeIndexSchema.SchemaVersion, item.Embedding.Provider, item.Embedding.Model,
+                    item.Embedding.Dimensions, KnowledgeIndexSchema.EmbeddingSchemaVersion, item.DocumentChunkCount, item.IndexProfile);
             return Task.CompletedTask;
         }
     }

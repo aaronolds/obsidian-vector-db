@@ -1230,5 +1230,12 @@
         0.004338597878813744
       ]
     }
+  ],
+  "queryCases": [
+    {
+      "query": "How does OBO work?",
+      "text": "Represent this sentence for searching relevant passages: How does OBO work?",
+      "inputIds": [101, 5050, 2023, 6251, 2005, 6575, 7882, 13768, 1024, 2129, 2515, 27885, 2080, 2147, 1029, 102]
+    }
   ]
 }

@@ -4,13 +4,14 @@
 
 This is a local-first .NET 10 knowledge platform for Obsidian vaults. Markdown
 files are the source of truth; Qdrant is intended to be rebuildable derived
-state. The repository currently implements through Milestone 3: configuration
+state. The repository currently implements through Milestone 4: configuration
 and status, Markdown ingestion/chunk inspection, local BGE-small embeddings,
-and document-level incremental indexing in local Qdrant. Milestone 3 acceptance
+document-level incremental indexing in local Qdrant, and dense CLI retrieval with
+optional filters. Milestone 3 acceptance
 includes live Qdrant/ONNX validation and a successful real-vault two-pass check;
 the unchanged second pass performed zero embedding calls and zero chunk writes.
-Dense CLI retrieval is next in Milestone 4. Search, rebuild, watching, and MCP
-hosting are not implemented yet. Do not treat roadmap items as existing behavior.
+Rebuild, benchmark evaluation, watching, and MCP hosting are not implemented yet.
+Do not treat roadmap items as existing behavior.
 
 Read the relevant architecture and decisions in `docs/` before changing
 cross-project contracts. In particular, consult `docs/adr/` for decisions and
@@ -99,6 +100,7 @@ dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- status
 dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- chunks --config knowledge.yaml
 dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- embeddings --config knowledge.milestone2.yaml
 dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- index --config knowledge.milestone3.yaml
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- search "How does OBO work?" --config knowledge.milestone4.yaml
 ```
 
 `status` checks configuration, vault existence, and Qdrant reachability. `chunks`
@@ -111,6 +113,14 @@ and validates its collection, skips complete unchanged documents, replaces whole
 changed documents, and removes deleted, excluded, or opted-out documents. It
 never modifies Markdown and emits only operational metadata. Run one indexing
 process at a time against a collection.
+
+`search` requires pinned local model/tokenizer assets and an already indexed,
+compatible collection. It performs local query inference and read-only dense
+Qdrant retrieval, always filtered by the configured vault ID. Path-prefix and
+exact-tag filters are optional. Query output includes requested Markdown content;
+application logs and errors exclude query and note text. Milestone 4 finalized
+the query profile at embedding schema version 2, so Milestone 3 collections need
+a fresh collection and reindex before search.
 
 Preserve the indexing safety gates: complete discovery and validate collection,
 schema, index profile, and runtime compatibility before point mutations. A missing

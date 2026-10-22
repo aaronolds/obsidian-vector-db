@@ -6,7 +6,6 @@ public sealed class CliTests
 {
     [Theory]
     [InlineData("rebuild")]
-    [InlineData("search")]
     [InlineData("watch")]
     public async Task Future_commands_are_not_implemented(string command)
     {
@@ -38,12 +37,23 @@ public sealed class CliTests
     }
 
     [Fact]
+    public async Task Search_help_is_available_without_model_assets_or_qdrant()
+    {
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        Assert.Equal(0, await KnowledgeCli.RunAsync(["search", "--help"], output, error));
+        Assert.Contains("knowledge search <query>", output.ToString());
+        Assert.Equal("", error.ToString());
+    }
+
+    [Fact]
     public async Task Help_does_not_require_configuration_or_qdrant()
     {
         using var output = new StringWriter();
         using var error = new StringWriter();
         Assert.Equal(0, await KnowledgeCli.RunAsync(["--help"], output, error));
         Assert.Contains("knowledge status", output.ToString());
+        Assert.Contains("knowledge search", output.ToString());
         Assert.Equal("", error.ToString());
     }
 

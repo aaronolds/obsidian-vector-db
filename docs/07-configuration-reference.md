@@ -128,6 +128,17 @@ mode: hybrid
 
 MCP tool contracts should remain stable.
 
+Milestone 4 uses `retrieval.defaultLimit` when `--limit` is omitted and rejects
+explicit limits outside `1..retrieval.maxLimit` (recommended maximum 50). The
+`search` command accepts an optional literal, case-sensitive vault-relative
+`--path` prefix and repeated exact `--tag` values. Repeated tags are combined
+with AND semantics. The configured `vaultId` is always applied as a filter.
+
+The BGE passage-retrieval instruction is applied to queries only. The query
+formatting identifier is part of the index profile and embedding schema version
+2; an older Milestone 3 collection must be reindexed into a fresh collection
+before search. Search is read-only and does not create a missing collection.
+
 ## 4. Environment overrides
 
 Recommended convention:

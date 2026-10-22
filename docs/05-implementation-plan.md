@@ -129,6 +129,12 @@ can index a real vault and a second unchanged run performs no embedding work.
 
 ## 6. Milestone 4: Dense CLI retrieval
 
+Implementation status: complete on 2026-10-22; see the detailed
+[Milestone 4 implementation plan](13-milestone-4-implementation-plan.md) for
+verification evidence and the real-vault smoke-test limitation.
+
+Detailed plan: [13-milestone-4-implementation-plan.md](13-milestone-4-implementation-plan.md).
+
 ### Objectives
 
 - Implement `IKnowledgeRetriever`.
