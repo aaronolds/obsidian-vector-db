@@ -294,7 +294,8 @@ public sealed class MarkdownIngestor
         while (i < lines.Length)
         {
             var line = lines[i];
-            var setext = i + 1 < lines.Length && !string.IsNullOrWhiteSpace(line) && Regex.IsMatch(lines[i + 1], @"^\s*(?:=+|-+)\s*$");
+            var isCodeFence = line.TrimStart().StartsWith("```", StringComparison.Ordinal) || line.TrimStart().StartsWith("~~~", StringComparison.Ordinal);
+            var setext = !isCodeFence && i + 1 < lines.Length && !string.IsNullOrWhiteSpace(line) && Regex.IsMatch(lines[i + 1], @"^\s*(?:=+|-+)\s*$");
             if (TryHeading(line, out var level, out var heading) || setext)
             {
                 if (setext)
@@ -317,7 +318,7 @@ public sealed class MarkdownIngestor
             if (string.IsNullOrWhiteSpace(line)) { if (raw.Count > 0) raw.Add(line); i++; continue; }
             var kind = BlockKind.Prose;
             var blockLines = new List<string> { line };
-            if (line.TrimStart().StartsWith("```", StringComparison.Ordinal) || line.TrimStart().StartsWith("~~~", StringComparison.Ordinal))
+            if (isCodeFence)
             {
                 kind = BlockKind.Code; var fence = line.TrimStart()[..3]; var closed = false; i++;
                 while (i < lines.Length) { blockLines.Add(lines[i]); if (lines[i].TrimStart().StartsWith(fence, StringComparison.Ordinal)) { i++; closed = true; break; } i++; }

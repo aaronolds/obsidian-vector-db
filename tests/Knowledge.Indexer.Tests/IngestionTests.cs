@@ -44,6 +44,29 @@ public sealed class IngestionTests
         Assert.Equal([new WikiLink("real", null)], chunk.Links);
     }
 
+    [Theory]
+    [InlineData("```", "---")]
+    [InlineData("```yaml", "---")]
+    [InlineData("~~~", "===")]
+    [InlineData("~~~yaml", "---")]
+    public void Fenced_examples_starting_with_heading_underlines_remain_code(string openingFence, string underline)
+    {
+        using var vault = new TemporaryVault();
+        var closingFence = openingFence[..3];
+        var example = $"{openingFence}\n{underline}\nname: example\n---\n# Fake\n[[fake]]\n{closingFence}";
+        vault.Write("Example.md", $"# Examples\n\n{example}\n\nActual heading\n===\nText [[real]].");
+
+        var result = Read(vault);
+
+        Assert.Empty(result.Diagnostics);
+        var code = Assert.Single(result.Chunks, chunk => chunk.HeadingPath.SequenceEqual(["Examples"]));
+        Assert.Contains(example, code.ContentMarkdown);
+        Assert.All(result.Chunks, chunk => Assert.DoesNotContain(chunk.Links, link => link.Target == "fake"));
+        var prose = Assert.Single(result.Chunks, chunk => chunk.HeadingPath.SequenceEqual(["Actual heading"]));
+        Assert.Contains("Text [[real]].", prose.ContentMarkdown);
+        Assert.Equal([new WikiLink("real", null)], prose.Links);
+    }
+
     [Fact]
     public void Empty_note_produces_no_chunks_and_ids_are_deterministic()
     {

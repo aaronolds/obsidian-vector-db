@@ -1,11 +1,12 @@
 # Milestone 3 implementation plan
 
-Implementation status: code, offline validation, and live Qdrant/ONNX integration
-complete. The documented sample-vault CLI run passed twice. The selected-vault
-check indexed valid notes and confirmed a zero-embedding second pass, but its
-final status remains open because one note has malformed frontmatter and the
-indexer correctly returned an incomplete-run exit code. No note files were
-changed; the temporary Qdrant collection and config were removed after the run.
+Implementation status: Milestone 3 complete, including offline validation, live
+Qdrant/ONNX integration, and the real-vault two-pass acceptance check on
+2026-10-22. With parser profile v2, the first pass indexed 402 documents into
+3,692 chunks; the second left all 402 documents unchanged with zero embedding
+calls and zero chunk writes. Both runs returned exit code 0 with no failures.
+The earlier parser failure is fixed; no source notes needed modification.
+The temporary acceptance collection and config were removed after verification.
 
 This plan expands Milestone 3 in [05-implementation-plan.md](05-implementation-plan.md).
 The architecture, specification, canonical contracts, and accepted ADRs remain
@@ -323,16 +324,52 @@ Implementation validation record (2026-10-22, macOS, .NET 10.0.13):
 - `knowledge index --config knowledge.milestone3.yaml` — first sample-vault run: scanned 6, indexed 4, opted out 1, empty 1, wrote 10 chunks using 10 embedding calls, no failures.
 - Same CLI command on the unchanged sample vault: scanned 6, unchanged 4, opted out 1, empty 1, wrote 0 chunks, made 0 embedding calls, no failures.
 - Selected-vault CLI run — first pass scanned 407 notes, indexed 400, found 6
-  empty notes, and reported 1 malformed-frontmatter failure; it wrote 3,695
+  empty notes, and reported 1 parse failure; it wrote 3,695
   chunks with 3,695 embedding calls. The second pass left 400 documents unchanged,
-  made 0 embedding calls, and reported the same malformed note. The run returned
+  made 0 embedding calls, and reported the same failed note. The run returned
   exit code 1 both times, as required for an incomplete index.
 - The selected-vault acceptance collection and temporary config were deleted
   after the check. Notes were never modified, and no personal note content was
   emitted by the CLI.
+- Parser follow-up (2026-10-22): the failure was initially misidentified as
+  malformed frontmatter. A valid code fence immediately followed by `---` was
+  treated as an underlined heading, leading to a false unclosed-fence error.
+  Code fences now take precedence over underlined headings. Regression cases
+  cover both fence styles, language labels, and `---`/`===` content. The affected
+  note passes `chunks` with the pinned tokenizer: 1 document, 10 chunks, 0 errors,
+  exit code 0. Chunk output was discarded and the source note was not edited.
+  All 83 offline tests pass (79 Indexer, 4 Embeddings), including the four new
+  regression cases. NuGet's online vulnerability audit was disabled for this
+  cached-package run because its service endpoint was unavailable.
+- The parser identity in the index profile is now `knowledge-markdown-v2` so
+  existing collections cannot silently reuse chunks produced by the old parser.
+- Final real-vault acceptance rerun (2026-10-22, macOS, .NET SDK 10.0.402,
+  Qdrant v1.19.2): built the fixed indexer with zero warnings/errors and verified
+  the pinned model digest. Used the previously selected vault, a temporary config
+  equivalent to `knowledge.milestone3.yaml` with absolute model/tokenizer paths,
+  and the fresh isolated collection `knowledge-m3-acceptance-7r4clnac`.
+  Confirmed the collection did not exist before the first run.
 
-Mark Milestone 3 complete only after AC-001 through AC-004 and its real-vault
-second-run criterion pass. The remaining vault-specific action is to repair or
-exclude the malformed note according to the vault owner's preference, then rerun
-both CLI passes and confirm exit code 0 with zero embedding calls on the second.
+  | Metric | First pass | Unchanged second pass |
+  |---|---:|---:|
+  | Notes scanned | 408 | 408 |
+  | Documents indexed | 402 | 0 |
+  | Documents unchanged | 0 | 402 |
+  | Empty notes | 6 | 6 |
+  | Opted-out notes | 0 | 0 |
+  | Failed documents | 0 | 0 |
+  | Chunks written | 3,692 | 0 |
+  | Chunks deleted | 0 | 0 |
+  | Embedding calls | 3,692 | 0 |
+  | Exit code | 0 | 0 |
+
+  Qdrant reported green health, 3,692 stored points, and a 384-dimensional cosine
+  collection after the second run. Only collection metadata and operational
+  counts were inspected; no note content or vectors were printed. Deleted the
+  temporary acceptance collection and confirmed it was absent afterward; removed
+  its temporary config. No source notes were modified.
+
+Milestone 3 is complete: the existing change/removal tests and live integration
+evidence, together with the successful real-vault rerun, satisfy its acceptance
+gates. No source-note repair or exclusion was needed.
 Rebuilding, semantic ranking, and MCP acceptance remain later milestone gates.

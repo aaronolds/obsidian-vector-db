@@ -16,7 +16,7 @@ public static class IndexProfile
             profileVersion = 1,
             schemaVersion = 1,
             embeddingSchemaVersion = 1,
-            parser = "knowledge-markdown-v1",
+            parser = "knowledge-markdown-v2",
             normalizer = "knowledge-markdown-normalizer-v1",
             chunker = "knowledge-structure-chunker-v1",
             formatter = "knowledge-embedding-text-v1",

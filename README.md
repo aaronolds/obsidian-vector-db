@@ -4,15 +4,17 @@ A local-first .NET 10 knowledge platform with authoritative Markdown and a
 rebuildable Qdrant index. The architecture in `docs/` and decisions in `docs/adr/`
 govern implementation.
 
-**Milestone 3 implementation:** The executable loads and validates configuration,
+**Milestone 3 complete:** The executable loads and validates configuration,
 reports vault existence and Qdrant connectivity, scans and chunks Markdown,
 generates local BGE-small embeddings through ONNX Runtime, and incrementally
 indexes documents in local Qdrant. Search, rebuild, watching, and MCP hosting
 remain deferred. The offline test suites pass; the live Qdrant/ONNX acceptance
-integration test and two-pass sample-vault CLI check pass. The selected-vault
-check confirmed 400 unchanged documents and zero embedding calls on its second
-pass; one malformed-frontmatter note kept the runs incomplete. The temporary
-collection was removed and no notes were changed.
+integration test and two-pass sample-vault CLI check pass. After fixing a parser
+bug involving fenced YAML examples, the real-vault check passed both runs with
+parser profile v2: 408 notes scanned, 402 indexed, 6 empty, and 3,692 chunks
+stored. The second pass left all 402 documents unchanged, wrote no chunks, and
+made zero embedding calls. Both runs returned exit code 0 with no failures.
+The temporary acceptance collection was removed and no notes were changed.
 
 ## Prerequisites
 
