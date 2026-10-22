@@ -1,0 +1,28 @@
+name: Feature request
+description: Propose a focused improvement to the local-first knowledge platform.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe your use case without real vault content, private queries,
+        vectors, credentials, or identifying filesystem paths.
+        Check the README and roadmap first; planned features are not yet available.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What is difficult or missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior and scope
+      description: Describe the desired outcome, boundaries, and a synthetic example.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and tradeoffs
+      description: Consider local-first privacy, deterministic behavior, and project boundaries.

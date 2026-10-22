@@ -298,6 +298,20 @@ dotnet test Knowledge.sln --no-build --no-restore
 The real-model integration suite requires the pinned ONNX file installed with the
 setup script; no Docker service is required for embeddings.
 
+## GitHub automation and contributing
+
+The checked-in GitHub workflows define Linux .NET 10 Release build/unit-test CI
+and direct/transitive NuGet vulnerability audits. Dependabot configuration
+requests weekly NuGet, Actions, Docker Compose, and Python reference-tool updates.
+Normal PR checks do not download models or run the real-model/Qdrant integration
+suites.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for local verification and data-safety
+guidance. [GitHub automation setup](docs/14-github-automation.md) covers workflow
+activation, required checks, and native Copilot automatic review. Copilot
+instructions are included, but repository rules must be enabled separately;
+adding the files alone does not enable automatic reviews or branch protection.
+
 ## Project boundaries
 
 - `Knowledge.Core`: dependency-free domain boundary; no unused contracts added.
