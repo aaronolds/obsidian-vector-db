@@ -28,11 +28,20 @@ public sealed class RetrievalBenchmarkTests
     [InlineData("Notes\\Case.md")]
     [InlineData("Notes//Case.md")]
     [InlineData("Notes/./Case.md")]
-    [InlineData("Notes/Case.MD")]
     public void Loader_rejects_noncanonical_paths(string path)
     {
         using var file = new TemporaryJson(BenchmarkJson(20, expectedPath: path));
         Assert.Throws<RetrievalBenchmarkException>(() => RetrievalBenchmarkLoader.Load(file.Path));
+    }
+
+    [Fact]
+    public void Loader_accepts_uppercase_markdown_extension()
+    {
+        using var file = new TemporaryJson(BenchmarkJson(20, expectedPath: "Notes/Case.MD"));
+
+        var benchmark = RetrievalBenchmarkLoader.Load(file.Path);
+
+        Assert.All(benchmark.Entries, entry => Assert.Equal("Notes/Case.MD", Assert.Single(entry.ExpectedPaths)));
     }
 
     [Fact]
