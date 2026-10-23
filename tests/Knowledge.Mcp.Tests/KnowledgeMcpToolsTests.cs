@@ -182,7 +182,7 @@ public sealed class KnowledgeMcpToolsTests
             File.WriteAllText(configPath, $"""
                 vault:
                   id: test-vault
-                  path: "{Path}"
+                  path: '{Path.Replace("'", "''")}'
                 index:
                   include: ["**/*.md"]
                   exclude: []
