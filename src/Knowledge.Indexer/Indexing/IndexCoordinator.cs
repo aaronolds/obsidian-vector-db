@@ -31,12 +31,47 @@ public sealed class IndexCoordinator(
     IEmbeddingService embeddings,
     KnowledgeOptions options)
 {
-    public async Task<IndexingSummary> IndexAsync(CancellationToken cancellationToken = default)
+    public async Task<IndexingSummary> RebuildAsync(CancellationToken cancellationToken = default)
     {
         var settings = new MarkdownIngestionOptions(options.Vault.Id, options.Vault.Path,
             options.Index.Include, options.Index.Exclude, options.Index.FrontmatterOptOutField,
             options.Chunking.TargetTokens, options.Chunking.SoftMaxTokens, options.Chunking.OverlapTokens);
         var scan = ingestor.Discover(settings, cancellationToken);
+        var diagnostics = scan.Diagnostics.ToList();
+        if (!scan.IsComplete)
+            return Summary(scan.Files.Count, 0, 0, 0, 0, 0, 1, 0, 0, 0, TimeSpan.Zero, TimeSpan.Zero, diagnostics);
+
+        foreach (var file in scan.Files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try { _ = ingestor.ReadSnapshot(file); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                diagnostics.Add(new IngestionDiagnostic(file.RelativePath, "read-failed", "The note could not be read; the existing collection was retained."));
+                return Summary(scan.Files.Count, 0, 0, 0, 0, 0, 1, 0, 0, 0, TimeSpan.Zero, TimeSpan.Zero, diagnostics);
+            }
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (store is not IKnowledgeCollectionLifecycle lifecycle)
+            throw new IndexCollectionException("The configured index store does not support explicit collection recreation.");
+        await lifecycle.RecreateCollectionAsync(cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        return await IndexAsync(scan, settings, cancellationToken);
+    }
+
+    public Task<IndexingSummary> IndexAsync(CancellationToken cancellationToken = default)
+    {
+        var settings = new MarkdownIngestionOptions(options.Vault.Id, options.Vault.Path,
+            options.Index.Include, options.Index.Exclude, options.Index.FrontmatterOptOutField,
+            options.Chunking.TargetTokens, options.Chunking.SoftMaxTokens, options.Chunking.OverlapTokens);
+        var scan = ingestor.Discover(settings, cancellationToken);
+        return IndexAsync(scan, settings, cancellationToken);
+    }
+
+    private async Task<IndexingSummary> IndexAsync(VaultScanResult scan, MarkdownIngestionOptions settings,
+        CancellationToken cancellationToken)
+    {
         var diagnostics = scan.Diagnostics.ToList();
         if (!scan.IsComplete)
             return Summary(scan.Files.Count, 0, 0, 0, 0, 0, 1, 0, 0, 0, TimeSpan.Zero, TimeSpan.Zero, diagnostics);

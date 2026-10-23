@@ -132,6 +132,18 @@ public interface IKnowledgeIndexStore
     Task UpsertAsync(IReadOnlyList<KnowledgeIndexPoint> points, CancellationToken cancellationToken = default);
 }
 
+public interface IKnowledgeCollectionLifecycle
+{
+    Task RecreateCollectionAsync(CancellationToken cancellationToken = default);
+}
+
+public sealed record KnowledgeIndexStatus(bool CollectionExists, long? IndexedDocuments, long? IndexedChunks);
+
+public interface IKnowledgeIndexStatusStore
+{
+    Task<KnowledgeIndexStatus> GetStatusAsync(string vaultId, CancellationToken cancellationToken = default);
+}
+
 public static class EmbeddingTextFormatter
 {
     public static string Format(string title, IReadOnlyList<string> headingPath,

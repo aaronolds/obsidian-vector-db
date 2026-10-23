@@ -157,6 +157,10 @@ This milestone should happen before MCP so retrieval can be debugged independent
 
 ## 7. Milestone 5: Rebuild and operational commands
 
+Implementation status: implemented on 2026-10-22. See
+[Milestone 5 implementation plan](15-milestone-5-implementation-plan.md) for the
+behavior, test results, and live acceptance evidence.
+
 ### Commands
 
 ```bash
@@ -166,8 +170,9 @@ knowledge status
 
 ### `rebuild`
 
-- recreate collection
-- index all eligible content
+- validate local runtime assets and complete vault/source-read preflight
+- delete and recreate the configured collection
+- index all eligible content, including unchanged source
 
 ### `status`
 
@@ -180,6 +185,12 @@ Report:
 - embedding model
 - document count
 - chunk count
+
+Counts are scoped to the configured vault ID. Status does not load ONNX assets or
+modify the collection; unavailable or malformed count reads report unavailable
+counts rather than successful zeros. Rebuild removes all points in the configured
+collection, including data for any other vault ID. Operators must use a dedicated
+collection; a failure after recreation can leave partial derived state.
 
 ### Exit criteria
 

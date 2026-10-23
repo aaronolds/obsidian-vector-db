@@ -4,13 +4,13 @@
 
 This is a local-first .NET 10 knowledge platform for Obsidian vaults. Markdown
 files are the source of truth; Qdrant is intended to be rebuildable derived
-state. The repository currently implements through Milestone 4: configuration
-and status, Markdown ingestion/chunk inspection, local BGE-small embeddings,
+state. The repository currently implements through Milestone 5: configuration
+and expanded status, Markdown ingestion/chunk inspection, local BGE-small embeddings,
 document-level incremental indexing in local Qdrant, and dense CLI retrieval with
-optional filters. Milestone 3 acceptance
+optional filters, plus explicit collection rebuild. Milestone 3 acceptance
 includes live Qdrant/ONNX validation and a successful real-vault two-pass check;
 the unchanged second pass performed zero embedding calls and zero chunk writes.
-Rebuild, benchmark evaluation, watching, and MCP hosting are not implemented yet.
+Benchmark evaluation, watching, and MCP hosting are not implemented yet.
 Do not treat roadmap items as existing behavior.
 
 Read the relevant architecture and decisions in `docs/` before changing
@@ -100,10 +100,13 @@ dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- status
 dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- chunks --config knowledge.yaml
 dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- embeddings --config knowledge.milestone2.yaml
 dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- index --config knowledge.milestone3.yaml
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- rebuild --config knowledge.milestone4.yaml
 dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- search "How does OBO work?" --config knowledge.milestone4.yaml
 ```
 
-`status` checks configuration, vault existence, and Qdrant reachability. `chunks`
+`status` checks configuration, vault existence, Qdrant reachability, collection
+existence, and indexed document/chunk counts scoped to the configured vault ID.
+It is read-only and does not load ONNX assets. `chunks`
 does not start Qdrant or load ONNX weights. `embeddings` requires the configured
 local model and tokenizer assets and writes note-derived vectors to stdout; do
 not capture or expose that output unnecessarily.
@@ -122,12 +125,18 @@ application logs and errors exclude query and note text. Milestone 4 finalized
 the query profile at embedding schema version 2, so Milestone 3 collections need
 a fresh collection and reindex before search.
 
+`rebuild` requires pinned local assets, completes vault discovery, and checks all
+candidate sources can be read before deleting the configured collection. It then
+recreates that collection and indexes every eligible note. This deletes points
+for all vault IDs in the collection; use a dedicated collection. Rebuild is not
+transactional, so a failure after deletion can leave partial derived state.
+
 Preserve the indexing safety gates: complete discovery and validate collection,
 schema, index profile, and runtime compatibility before point mutations. A missing
 or unreadable vault must not trigger stale-document deletion. Replacement follows
 ADR-009's delete-before-parse order and is not transactional; the next run repairs
-missing or incomplete document state. Profile changes require a fresh collection
-until Milestone 5 adds `rebuild`; never silently reuse an incompatible index.
+missing or incomplete document state. Profile changes require an explicit
+collection rebuild; never silently reuse an incompatible index.
 
 ## Configuration and documentation
 

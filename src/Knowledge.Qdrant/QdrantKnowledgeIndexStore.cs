@@ -5,7 +5,7 @@ using Qdrant.Client.Grpc;
 namespace Knowledge.Qdrant;
 
 /// <summary>Qdrant persistence for the indexer. Only callers in the Indexer should write.</summary>
-public sealed class QdrantKnowledgeIndexStore(QdrantClient client, string collection) : IKnowledgeIndexStore
+public sealed class QdrantKnowledgeIndexStore(QdrantClient client, string collection) : IKnowledgeIndexStore, IKnowledgeCollectionLifecycle, IKnowledgeIndexStatusStore
 {
     private const int Dimensions = KnowledgeIndexSchema.EmbeddingDimensions;
     private const int ScrollPageSize = 256;
@@ -36,6 +36,52 @@ public sealed class QdrantKnowledgeIndexStore(QdrantClient client, string collec
             await client.CreatePayloadIndexAsync(collection, field, PayloadSchemaType.Keyword,
                 wait: true, cancellationToken: cancellationToken);
         }
+    }
+
+    public async Task RecreateCollectionAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (await client.CollectionExistsAsync(collection, cancellationToken))
+            await client.DeleteCollectionAsync(collection, cancellationToken: cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        await client.CreateCollectionAsync(collection,
+            new VectorParams { Size = Dimensions, Distance = Distance.Cosine },
+            cancellationToken: cancellationToken);
+        await EnsureCollectionAsync(cancellationToken);
+    }
+
+    public async Task<KnowledgeIndexStatus> GetStatusAsync(string vaultId, CancellationToken cancellationToken = default)
+    {
+        if (!await client.CollectionExistsAsync(collection, cancellationToken))
+            return new KnowledgeIndexStatus(false, 0, 0);
+
+        long chunks = 0;
+        var documents = new HashSet<string>(StringComparer.Ordinal);
+        PointId? offset = null;
+        var filter = new Filter
+        {
+            Must = { new Condition { Field = new FieldCondition { Key = "vaultId", Match = new Match { Keyword = vaultId } } } }
+        };
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var page = await client.ScrollAsync(collection, filter, limit: ScrollPageSize, offset: offset,
+                payloadSelector: new WithPayloadSelector
+                {
+                    Include = new PayloadIncludeSelector { Fields = { "documentId" } }
+                }, vectorsSelector: false, cancellationToken: cancellationToken);
+            foreach (var point in page.Result)
+            {
+                chunks++;
+                if (!point.Payload.TryGetValue("documentId", out var value) || !value.HasStringValue ||
+                    string.IsNullOrWhiteSpace(value.StringValue))
+                    throw new InvalidDataException("Qdrant status payload is missing a valid document identity.");
+                documents.Add(value.StringValue);
+            }
+            if (page.NextPageOffset is null) break;
+            offset = page.NextPageOffset;
+        }
+        return new KnowledgeIndexStatus(true, documents.Count, chunks);
     }
 
     public async Task<IReadOnlyList<IndexedChunkMetadata>> GetIndexedChunksAsync(string vaultId, CancellationToken cancellationToken = default)

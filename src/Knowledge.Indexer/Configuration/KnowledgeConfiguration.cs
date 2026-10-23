@@ -29,10 +29,11 @@ public static class KnowledgeConfiguration
         return configuration;
     }
 
-    public static IServiceCollection AddKnowledgeOptions(this IServiceCollection services, IConfiguration configuration, string configPath)
+    public static IServiceCollection AddKnowledgeOptions(this IServiceCollection services, IConfiguration configuration, string configPath,
+        bool validateEmbeddingAssets = true)
     {
         var basePath = Path.GetDirectoryName(Path.GetFullPath(configPath))!;
-        services.AddSingleton<IValidateOptions<KnowledgeOptions>, KnowledgeOptionsValidator>();
+        services.AddSingleton<IValidateOptions<KnowledgeOptions>>(_ => new KnowledgeOptionsValidator(validateEmbeddingAssets));
         services.AddOptions<KnowledgeOptions>()
             .Bind(configuration, binder => binder.ErrorOnUnknownConfiguration = true)
             .PostConfigure(options =>

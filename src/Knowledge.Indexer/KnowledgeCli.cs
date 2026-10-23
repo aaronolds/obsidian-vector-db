@@ -17,13 +17,13 @@ namespace Knowledge.Indexer;
 
 public static class KnowledgeCli
 {
-    private const string Usage = "Usage: knowledge status [--config <path>] | knowledge chunks [--config <path>] | knowledge embeddings [--config <path>] | knowledge index [--config <path>] | knowledge search <query> [--limit <n>] [--path <prefix>] [--tag <tag>]... [--config <path>]";
+    private const string Usage = "Usage: knowledge status [--config <path>] | knowledge chunks [--config <path>] | knowledge embeddings [--config <path>] | knowledge index [--config <path>] | knowledge rebuild [--config <path>] | knowledge search <query> [--limit <n>] [--path <prefix>] [--tag <tag>]... [--config <path>]\nRebuild deletes and recreates the configured collection, including points for any other vault stored there. Use a dedicated collection.";
 
     public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error,
         CancellationToken cancellationToken = default,
         Func<KnowledgeOptions, IKnowledgeRetriever>? retrieverFactory = null)
     {
-        if (args is ["--help"] or ["-h"] or ["status", "--help"] or ["chunks", "--help"] or ["embeddings", "--help"] or ["index", "--help"] or ["search", "--help"])
+        if (args is ["--help"] or ["-h"] or ["status", "--help"] or ["chunks", "--help"] or ["embeddings", "--help"] or ["index", "--help"] or ["rebuild", "--help"] or ["search", "--help"])
         {
             await output.WriteLineAsync(Usage);
             return 0;
@@ -35,6 +35,8 @@ public static class KnowledgeCli
             return await RunEmbeddingsAsync(args[1..], output, error, cancellationToken);
         if (command == "index")
             return await RunIndexAsync(args[1..], output, error, cancellationToken);
+        if (command == "rebuild")
+            return await RunRebuildAsync(args[1..], output, error, cancellationToken);
         if (command == "search")
             return await RunSearchAsync(args[1..], output, error, cancellationToken, retrieverFactory);
 
@@ -54,7 +56,7 @@ public static class KnowledgeCli
         {
             using var configuration = KnowledgeConfiguration.Load(configPath);
             var services = new ServiceCollection();
-            services.AddKnowledgeOptions(configuration, configPath);
+            services.AddKnowledgeOptions(configuration, configPath, validateEmbeddingAssets: false);
             using var provider = services.BuildServiceProvider();
             // Force options validation before any network I/O.
             var options = provider.GetRequiredService<IOptions<KnowledgeOptions>>().Value;
@@ -66,9 +68,28 @@ public static class KnowledgeCli
                     console.TimestampFormat = "yyyy-MM-ddTHH:mm:ss.fffZ";
                     console.UseUtcTimestamp = true;
                 }));
-            var logger = loggerFactory.CreateLogger("Knowledge.Indexer.Status");
             using var probe = new QdrantHealthCheck(options.Qdrant.Host, options.Qdrant.Port);
             var health = await probe.CheckAsync(cancellationToken);
+            KnowledgeIndexStatus? indexStatus = null;
+            string? statusFailure = null;
+            if (health.IsReachable)
+            {
+                try
+                {
+                    using var statusClient = new QdrantClient(options.Qdrant.Host, options.Qdrant.Port, grpcTimeout: TimeSpan.FromSeconds(10));
+                    indexStatus = await new QdrantKnowledgeIndexStore(statusClient, options.Qdrant.Collection)
+                        .GetStatusAsync(options.Vault.Id, cancellationToken);
+                }
+                catch (RpcException ex) when (!cancellationToken.IsCancellationRequested)
+                {
+                    statusFailure = $"Qdrant status inspection failed [{ex.StatusCode}].";
+                }
+                catch (InvalidDataException)
+                {
+                    indexStatus = new KnowledgeIndexStatus(true, null, null);
+                    statusFailure = "Qdrant status inspection returned malformed identity data; indexed counts are unavailable.";
+                }
+            }
             var vaultExists = Directory.Exists(options.Vault.Path);
             var endpoint = new UriBuilder("http", options.Qdrant.Host, options.Qdrant.Port).Uri.GetLeftPart(UriPartial.Authority);
             var version = typeof(KnowledgeCli).Assembly.GetName().Version?.ToString(3) ?? "unknown";
@@ -80,14 +101,20 @@ public static class KnowledgeCli
             await output.WriteLineAsync($"Qdrant endpoint: {endpoint} (gRPC)");
             await output.WriteLineAsync($"Qdrant reachable: {health.IsReachable.ToString().ToLowerInvariant()}");
             await output.WriteLineAsync($"Collection: {options.Qdrant.Collection}");
+            await output.WriteLineAsync($"Collection exists: {indexStatus?.CollectionExists.ToString().ToLowerInvariant() ?? "unavailable"}");
+            await output.WriteLineAsync($"Indexed documents: {indexStatus?.IndexedDocuments?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"}");
+            await output.WriteLineAsync($"Indexed chunks: {indexStatus?.IndexedChunks?.ToString(CultureInfo.InvariantCulture) ?? "unavailable"}");
             await output.WriteLineAsync($"Embedding model: {options.Embedding.Model}");
             await output.WriteLineAsync($"Embedding dimensions: {options.Embedding.Dimensions}");
-
-            logger.LogInformation("Status checked: VaultId={VaultId}, VaultExists={VaultExists}, QdrantReachable={QdrantReachable}",
-                options.Vault.Id, vaultExists, health.IsReachable);
+            if (statusFailure is not null) await error.WriteLineAsync(statusFailure);
+            var logger = loggerFactory.CreateLogger("Knowledge.Indexer.Status");
+            logger.LogInformation("Status checked: VaultId={VaultId}, VaultExists={VaultExists}, QdrantReachable={QdrantReachable}, CollectionExists={CollectionExists}, IndexedDocuments={IndexedDocuments}, IndexedChunks={IndexedChunks}",
+                options.Vault.Id, vaultExists, health.IsReachable, indexStatus?.CollectionExists,
+                indexStatus?.IndexedDocuments, indexStatus?.IndexedChunks);
+            if (!vaultExists) await error.WriteLineAsync("Configured vault directory does not exist.");
             if (!health.IsReachable)
-                logger.LogWarning("Qdrant health check failed: Endpoint={Endpoint}, FailureCode={FailureCode}", endpoint, health.FailureCode);
-            return vaultExists && health.IsReachable ? 0 : 1;
+                await error.WriteLineAsync($"Qdrant health check failed [{health.FailureCode}].");
+            return vaultExists && health.IsReachable && statusFailure is null && indexStatus?.CollectionExists == true ? 0 : 1;
         }
         catch (OptionsValidationException ex)
         {
@@ -339,6 +366,89 @@ public static class KnowledgeCli
         catch (Exception) when (cancellationToken.IsCancellationRequested)
         {
             await error.WriteLineAsync("Indexing cancelled; run index again to repair any incomplete document.");
+            return 130;
+        }
+    }
+
+    private static async Task<int> RunRebuildAsync(string[] args, TextWriter output, TextWriter error, CancellationToken cancellationToken)
+    {
+        var configPath = args switch
+        {
+            [] => "knowledge.yaml",
+            ["--config", var path] when !string.IsNullOrWhiteSpace(path) => path,
+            _ => null
+        };
+        if (configPath is null)
+        {
+            await error.WriteLineAsync(Usage);
+            return 2;
+        }
+
+        try
+        {
+            using var configuration = KnowledgeConfiguration.Load(configPath);
+            var services = new ServiceCollection();
+            services.AddKnowledgeOptions(configuration, configPath);
+            using var provider = services.BuildServiceProvider();
+            var options = provider.GetRequiredService<IOptions<KnowledgeOptions>>().Value;
+            if (string.IsNullOrWhiteSpace(options.Embedding.ModelPath) || string.IsNullOrWhiteSpace(options.Embedding.TokenizerPath))
+                throw new EmbeddingAssetException("knowledge rebuild requires embedding.modelPath and embedding.tokenizerPath for the pinned local BGE model.");
+
+            using var embeddings = new OnnxEmbeddingService(options.Embedding.ModelPath, options.Embedding.TokenizerPath);
+            using var client = new QdrantClient(options.Qdrant.Host, options.Qdrant.Port, grpcTimeout: TimeSpan.FromSeconds(10));
+            var store = new QdrantKnowledgeIndexStore(client, options.Qdrant.Collection);
+            var coordinator = new IndexCoordinator(new MarkdownIngestor(embeddings), store, embeddings, options);
+            var result = await coordinator.RebuildAsync(cancellationToken);
+            foreach (var diagnostic in result.Diagnostics)
+                await error.WriteLineAsync($"Rebuild error [{diagnostic.Code}] {diagnostic.RelativePath}: {diagnostic.Message}");
+
+            await output.WriteLineAsync($"Scanned: {result.Scanned}; indexed: {result.Indexed}; unchanged: {result.Unchanged}; opted out: {result.OptedOut}; empty: {result.Empty}; stale deleted: {result.StaleDeleted}; failed: {result.Failed}");
+            await output.WriteLineAsync($"Chunks written: {result.ChunksWritten}; chunks deleted: {result.ChunksDeleted}; embedding calls: {result.EmbeddingCalls}; embedding time: {result.EmbeddingDuration.TotalMilliseconds:F0} ms; Qdrant time: {result.QdrantDuration.TotalMilliseconds:F0} ms");
+            return result.IsComplete ? 0 : 1;
+        }
+        catch (OptionsValidationException ex)
+        {
+            foreach (var failure in ex.Failures) await error.WriteLineAsync($"Configuration error: {failure}");
+            return 2;
+        }
+        catch (KnowledgeConfigurationException ex)
+        {
+            await error.WriteLineAsync($"Configuration error: {ex.Message}");
+            return 2;
+        }
+        catch (IndexCollectionException ex)
+        {
+            await error.WriteLineAsync($"Rebuild compatibility error: {ex.Message}");
+            return 2;
+        }
+        catch (EmbeddingAssetException ex)
+        {
+            await error.WriteLineAsync($"Embedding asset error: {ex.Message}");
+            return 2;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await error.WriteLineAsync("Rebuild cancelled; the previous collection may have been removed and the new collection may be incomplete.");
+            return 130;
+        }
+        catch (RpcException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            await error.WriteLineAsync($"Qdrant error [{ex.StatusCode}]: rebuild did not complete; rerun rebuild to repair derived state.");
+            return 1;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            await error.WriteLineAsync("Configuration, vault, or local embedding assets could not be read.");
+            return 2;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            await error.WriteLineAsync("Configuration error: unknown key, incompatible value, or invalid path. Check the selected configuration and KNOWLEDGE_ overrides.");
+            return 2;
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            await error.WriteLineAsync("Rebuild cancelled; the previous collection may have been removed and the new collection may be incomplete.");
             return 130;
         }
     }
