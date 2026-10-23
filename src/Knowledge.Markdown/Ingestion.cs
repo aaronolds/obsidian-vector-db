@@ -196,6 +196,7 @@ public sealed class MarkdownIngestor
     public NoteMetadata ReadNoteMetadata(SourceSnapshot snapshot, MarkdownIngestionOptions options)
     {
         var text = new UTF8Encoding(false, true).GetString(snapshot.Bytes);
+        if (text.StartsWith('\uFEFF')) text = text[1..];
         var (lines, start, frontmatter) = ReadFrontmatter(text);
         var title = Values(frontmatter, "title").FirstOrDefault() ?? FindFirstH1(lines, start) ??
             Path.GetFileNameWithoutExtension(snapshot.File.RelativePath);
