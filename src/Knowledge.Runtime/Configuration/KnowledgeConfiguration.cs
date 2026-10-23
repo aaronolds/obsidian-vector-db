@@ -5,7 +5,7 @@ using Microsoft.Extensions.Options;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
-namespace Knowledge.Indexer.Configuration;
+namespace Knowledge.Runtime.Configuration;
 
 public static class KnowledgeConfiguration
 {

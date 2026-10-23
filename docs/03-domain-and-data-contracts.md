@@ -284,11 +284,42 @@ Request:
 }
 ```
 
-Recommended behavior:
+Inputs: exactly one of `path` or `documentId`. A path is a canonical
+vault-relative Markdown path using `/`; a document ID is the canonical
+`sha256:` identity of a discovered note.
+
+Successful result:
+
+```json
+{
+  "found": true,
+  "note": {
+    "documentId": "sha256:...",
+    "path": "Architecture/Azure Authentication.md",
+    "title": "Azure Authentication",
+    "contentMarkdown": "---\\ntags: [azure]\\n---\\n# Azure Authentication\\n...",
+    "fileHash": "sha256:...",
+    "modifiedUtc": "2026-10-23T12:00:00Z"
+  }
+}
+```
+
+Not found result:
+
+```json
+{ "found": false, "note": null }
+```
+
+Behavior:
 
 - Resolve only inside the configured vault.
 - Read the current authoritative Markdown file, not reconstructed Qdrant chunks.
 - Reject traversal such as `../`.
 - Return a not-found result if the note no longer exists.
+- Apply configured discovery include/exclude rules and the frontmatter opt-out
+  field; opted-out or excluded notes are unavailable by either selector.
+- Return the full current Markdown snapshot, including frontmatter, rather than
+  reconstructing content from Qdrant.
+- Include provenance and the file-content hash for the returned snapshot.
 
 This preserves the distinction between search index and authoritative content.

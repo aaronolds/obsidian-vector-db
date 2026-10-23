@@ -44,6 +44,7 @@ If remote Qdrant is later adopted, authentication, TLS, firewalling, secrets man
 POC:
 
 - local-only
+- stdio transport over the client-managed child process
 - read-only knowledge tools
 - no arbitrary filesystem tool
 - no write-back tool
@@ -58,6 +59,10 @@ POC:
 Recommended POC symlink policy:
 
 > Do not follow symlinks that resolve outside the configured vault root.
+
+The MCP host writes protocol frames only to stdout. Diagnostics and help use
+stderr; console logging providers are disabled while serving so note text, query
+arguments, and protocol frames are not copied into application logs.
 
 ## 5. Embeddings
 

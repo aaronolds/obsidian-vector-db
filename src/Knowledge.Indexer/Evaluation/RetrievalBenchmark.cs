@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Knowledge.Core;
 using Knowledge.Embeddings;
-using Knowledge.Indexer.Configuration;
+using Knowledge.Runtime.Configuration;
 using Knowledge.Markdown;
 using YamlDotNet.Core;
 

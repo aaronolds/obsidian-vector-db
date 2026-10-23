@@ -1,4 +1,4 @@
-using Knowledge.Indexer.Configuration;
+using Knowledge.Runtime.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 

@@ -153,6 +153,23 @@ top-five chunk cutoff regardless of `retrieval.defaultLimit`, applies no search
 filters, and is read-only. Benchmark and report paths are relative to the
 working directory; keep private real-vault files under ignored `eval/local/`.
 
+### MCP host
+
+Run `src/Knowledge.Mcp/Knowledge.Mcp.csproj` as the local stdio MCP executable
+with `--config <path>` (default `knowledge.yaml`). It uses the same
+`KNOWLEDGE_` overrides and configuration-file-relative vault/model paths as the
+CLI. Client launch configuration should pass an absolute DLL path and absolute
+config path. Tool discovery and `get_note` do not load model assets or contact
+Qdrant. The first valid `search_knowledge` call initializes one local
+BGE/Qdrant runtime and requires an existing compatible collection. The host
+never indexes or creates a collection.
+
+`search_knowledge` defaults to `retrieval.defaultLimit` and enforces
+`retrieval.maxLimit`; path prefixes and exact tag filters follow CLI semantics.
+`get_note` accepts a canonical vault-relative Markdown path or canonical
+document ID, reads current eligible Markdown, and returns the source hash and
+modification timestamp. Neither tool changes the index or vault.
+
 ## 4. Environment overrides
 
 Recommended convention:

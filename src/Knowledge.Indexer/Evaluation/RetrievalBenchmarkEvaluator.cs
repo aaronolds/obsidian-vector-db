@@ -1,8 +1,8 @@
 using System.Text.Json;
 using Knowledge.Core;
 using Knowledge.Embeddings;
-using Knowledge.Indexer.Configuration;
-using Knowledge.Indexer.Indexing;
+using Knowledge.Runtime.Configuration;
+using Knowledge.Runtime.Indexing;
 using Knowledge.Markdown;
 
 namespace Knowledge.Indexer.Evaluation;

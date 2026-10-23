@@ -1,7 +1,8 @@
 using Knowledge.Core;
 using Knowledge.Embeddings;
-using Knowledge.Indexer.Configuration;
+using Knowledge.Runtime.Configuration;
 using Knowledge.Indexer.Indexing;
+using Knowledge.Runtime.Indexing;
 using Knowledge.Markdown;
 using Knowledge.Qdrant;
 

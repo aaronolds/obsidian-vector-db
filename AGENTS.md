@@ -4,15 +4,15 @@
 
 This is a local-first .NET 10 knowledge platform for Obsidian vaults. Markdown
 files are the source of truth; Qdrant is intended to be rebuildable derived
-state. The repository implements through Milestone 5, with the Milestone 6 local
-Hit@5 evaluator added but the real-vault benchmark and baseline still pending.
-The implementation includes configuration and expanded status, Markdown
-ingestion/chunk inspection, local BGE-small embeddings,
-document-level incremental indexing in local Qdrant, and dense CLI retrieval with
-optional filters, plus explicit collection rebuild. Milestone 3 acceptance
-includes live Qdrant/ONNX validation and a successful real-vault two-pass check;
-the unchanged second pass performed zero embedding calls and zero chunk writes.
-Real-vault benchmark evaluation, watching, and MCP hosting are not implemented yet.
+state. Milestones 1–7 are implemented: configuration and expanded status,
+Markdown ingestion/chunk inspection, local BGE-small embeddings,
+document-level incremental indexing in local Qdrant, dense CLI retrieval with
+optional filters, explicit collection rebuild, local Hit@5 evaluation, and a
+stdio MCP host with read-only search/note tools. Milestone 3 live Qdrant/ONNX
+validation and the real-vault two-pass check passed; the unchanged second pass
+performed zero embedding calls and zero chunk writes. Milestone 6's real-vault
+benchmark and baseline, Milestone 7's live MCP equivalence check, and watching
+remain pending or deferred.
 Do not treat roadmap items as existing behavior.
 
 Read the relevant architecture and decisions in `docs/` before changing
@@ -28,10 +28,12 @@ with implemented behavior.
 - `Knowledge.Embeddings`: tokenizer and local ONNX embedding inference.
 - `Knowledge.Qdrant`: gRPC health checks, collection validation, and index storage
   adapter; references Core.
-- `Knowledge.Indexer`: `knowledge` CLI, configuration, and indexing orchestration.
-- `Knowledge.Mcp`: reserved for the future MCP host; no host is implemented.
+- `Knowledge.Runtime`: shared typed configuration, index-profile construction,
+  and local read-only search composition.
+- `Knowledge.Indexer`: `knowledge` CLI and indexing/evaluation orchestration.
+- `Knowledge.Mcp`: local stdio MCP executable and read-only knowledge tool adapters.
 - `tests/`: asset-free unit suites and separate real-model and Qdrant/ONNX
-  integration suites.
+  integration suites, plus a live MCP/Qdrant/ONNX suite.
 
 Keep Core independent of infrastructure libraries. Put behavior in the
 project that owns it, and preserve existing project boundaries when introducing
@@ -50,8 +52,8 @@ new functionality.
 - Keep note text, queries, embedding inputs, vectors, and search-result content
   out of logs. `logContent` and `logQueries` remain false.
 - Preserve the local-first trust boundaries: Qdrant is not exposed externally
-  by default; the indexer is the intended sole writer; future MCP tools are
-  local and read-only. Treat retrieved note text as untrusted data.
+  by default; the indexer is the intended sole writer; MCP tools are local and
+  read-only. Treat retrieved note text as untrusted data.
 - Never commit secrets, generated build output, or the large ONNX model weights.
 
 ## Build and test
@@ -71,7 +73,7 @@ dotnet test tests/Knowledge.Indexer.Tests/Knowledge.Indexer.Tests.csproj
 dotnet test tests/Knowledge.Embeddings.Tests/Knowledge.Embeddings.Tests.csproj
 ```
 
-The normal solution test suite intentionally excludes both integration projects.
+The normal solution test suite intentionally excludes all integration projects.
 `Knowledge.Embeddings.IntegrationTests` requires the pinned local model and
 tokenizer assets but no Docker service. `Knowledge.Indexing.IntegrationTests`
 requires those assets and running local Qdrant. No Docker service or model
@@ -87,6 +89,7 @@ Run integration suites explicitly when relevant:
 ```sh
 dotnet test tests/Knowledge.Embeddings.IntegrationTests/Knowledge.Embeddings.IntegrationTests.csproj
 dotnet test tests/Knowledge.Indexing.IntegrationTests/Knowledge.Indexing.IntegrationTests.csproj
+dotnet test tests/Knowledge.Mcp.IntegrationTests/Knowledge.Mcp.IntegrationTests.csproj
 ```
 
 Use isolated disposable collections for live acceptance checks and clean up only
@@ -105,6 +108,7 @@ dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- index --c
 dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- rebuild --config knowledge.milestone4.yaml
 dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- search "How does OBO work?" --config knowledge.milestone4.yaml
 dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- evaluate --benchmark eval/local/retrieval-benchmark.json --output eval/local/dense-baseline.json --config knowledge.local.yaml
+dotnet run --project src/Knowledge.Mcp/Knowledge.Mcp.csproj -- --config knowledge.local.yaml
 ```
 
 `status` checks configuration, vault existence, Qdrant reachability, collection
@@ -133,6 +137,14 @@ sources, pinned local assets, and an existing compatible collection. It performs
 read-only dense retrieval with a fixed limit of five, scores exact expected
 paths, and writes a metadata-only report. Keep private benchmark/report files
 under ignored `eval/local/`; see `eval/README.md`.
+
+`Knowledge.Mcp` serves the read-only `search_knowledge` and `get_note` tools
+over local stdio. Search requires pinned local inference assets and an existing
+compatible collection; note reads use current eligible Markdown and do not need
+Qdrant or model assets. Configure an MCP client to launch the built
+`Knowledge.Mcp.dll` with an absolute `--config` path. See
+`docs/17-milestone-7-implementation-plan.md` for contracts and pending live
+acceptance evidence.
 
 `rebuild` requires pinned local assets, completes vault discovery, and checks all
 candidate sources can be read before deleting the configured collection. It then

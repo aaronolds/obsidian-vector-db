@@ -42,6 +42,7 @@ The documentation in this package reflects the decisions reached during architec
 | `14-github-automation.md` | Build/audit workflows, dependency maintenance, and manual branch-protection/Copilot review activation |
 | `15-milestone-5-implementation-plan.md` | Explicit collection rebuild, vault-scoped status, and verification evidence |
 | `16-milestone-6-implementation-plan.md` | Evaluator behavior, pending real-vault Hit@5 baseline, and review gates |
+| `17-milestone-7-implementation-plan.md` | Local MCP host, shared retrieval, authoritative note reads, and verification evidence |
 | `adr/` | Architecture Decision Records |
 
 ## Initial technology baseline
@@ -65,6 +66,7 @@ obsidian-knowledge-platform/
 │   ├── Knowledge.Markdown/
 │   ├── Knowledge.Embeddings/
 │   ├── Knowledge.Qdrant/
+│   ├── Knowledge.Runtime/
 │   ├── Knowledge.Indexer/
 │   └── Knowledge.Mcp/
 ├── tests/
@@ -81,6 +83,12 @@ obsidian-knowledge-platform/
 │   └── docker-compose.yml
 └── knowledge.yaml
 ```
+
+Milestone 7 implements `Knowledge.Mcp` as a local stdio executable. It exposes
+read-only `search_knowledge` over the shared dense retriever and `get_note` over
+current eligible Markdown. Unit protocol coverage passes; live Qdrant/ONNX
+search equivalence remains pending. See
+[the Milestone 7 implementation plan](17-milestone-7-implementation-plan.md).
 
 ## POC definition of done
 

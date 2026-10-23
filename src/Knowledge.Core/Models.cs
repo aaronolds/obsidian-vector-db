@@ -45,6 +45,21 @@ public sealed record KnowledgeSearchResult(
     string ContentMarkdown,
     double Score);
 
+public sealed record KnowledgeNoteRequest(string? Path = null, string? DocumentId = null);
+
+public sealed record KnowledgeNote(
+    string DocumentId,
+    string Path,
+    string Title,
+    string ContentMarkdown,
+    string FileHash,
+    DateTimeOffset ModifiedUtc);
+
+public interface IKnowledgeNoteReader
+{
+    Task<KnowledgeNote?> GetNoteAsync(KnowledgeNoteRequest request, CancellationToken cancellationToken = default);
+}
+
 public static class KnowledgeSearchRequestValidator
 {
     public static KnowledgeSearchRequest Normalize(KnowledgeSearchRequest request, int maxLimit)

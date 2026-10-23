@@ -1,6 +1,7 @@
 using System.Text;
 using Knowledge.Core;
-using Knowledge.Indexer.Configuration;
+using Knowledge.Runtime.Configuration;
+using Knowledge.Runtime.Indexing;
 using Knowledge.Markdown;
 using Knowledge.Qdrant;
 using Grpc.Core;
