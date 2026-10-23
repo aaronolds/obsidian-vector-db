@@ -178,6 +178,109 @@ public sealed class IndexingTests
     }
 
     [Fact]
+    public async Task Rebuild_recreates_collection_and_reembeds_unchanged_sources()
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("Note.md", "# Note\nSemantic content.");
+        var (coordinator, embeddings, store) = Create(vault);
+        await coordinator.IndexAsync();
+        var existingPointIds = store.Points.Keys.ToArray();
+
+        var result = await coordinator.RebuildAsync();
+
+        Assert.True(result.IsComplete);
+        Assert.Equal(1, store.RecreateCalls);
+        Assert.Equal(1, result.Indexed);
+        Assert.Equal(0, result.Unchanged);
+        Assert.Equal(1, result.EmbeddingCalls);
+        Assert.Equal(2, embeddings.Calls);
+        Assert.Equal(existingPointIds, store.Points.Keys);
+    }
+
+    [Fact]
+    public async Task Rebuild_with_missing_vault_preserves_existing_collection()
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("Note.md", "# Note\nSemantic content.");
+        var (coordinator, _, store) = Create(vault);
+        await coordinator.IndexAsync();
+        var existingCount = store.Points.Count;
+        Directory.Delete(vault.Path, true);
+
+        var result = await coordinator.RebuildAsync();
+
+        Assert.False(result.IsComplete);
+        Assert.Equal(0, store.RecreateCalls);
+        Assert.Equal(existingCount, store.Points.Count);
+    }
+
+    [Fact]
+    public async Task Rebuild_of_empty_vault_leaves_an_empty_recreated_collection()
+    {
+        using var vault = new TemporaryVault();
+        var (coordinator, _, store) = Create(vault);
+
+        var result = await coordinator.RebuildAsync();
+
+        Assert.True(result.IsComplete);
+        Assert.Equal(1, store.RecreateCalls);
+        Assert.Empty(store.Points);
+    }
+
+    [Fact]
+    public async Task Cancelled_rebuild_does_not_recreate_collection()
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("Note.md", "# Note\nSemantic content.");
+        var (coordinator, _, store) = Create(vault);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => coordinator.RebuildAsync(cancellation.Token));
+
+        Assert.Equal(0, store.RecreateCalls);
+    }
+
+    [Fact]
+    public async Task Incomplete_discovery_from_broken_markdown_link_preserves_collection()
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("Note.md", "# Note\nSemantic content.");
+        var (coordinator, _, store) = Create(vault);
+        await coordinator.IndexAsync();
+        var existingCount = store.Points.Count;
+        File.CreateSymbolicLink(Path.Combine(vault.Path, "Unreadable.md"), Path.Combine(vault.Path, "missing-target.md"));
+
+        var result = await coordinator.RebuildAsync();
+
+        Assert.False(result.IsComplete);
+        Assert.Equal(0, store.RecreateCalls);
+        Assert.Equal(existingCount, store.Points.Count);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "read-failed");
+    }
+
+    [Fact]
+    public async Task Rebuild_recovers_an_incompatible_profile_and_failed_rebuild_is_repaired_by_index()
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("Note.md", "# Note\nOriginal.");
+        var (coordinator, embeddings, store) = Create(vault);
+        await coordinator.IndexAsync();
+        var indexed = store.Points.Single();
+        store.Points[indexed.Key] = indexed.Value with { IndexProfile = "sha256:incompatible" };
+
+        embeddings.FailNext = true;
+        var partial = await coordinator.RebuildAsync();
+        Assert.False(partial.IsComplete);
+        Assert.Empty(store.Points);
+
+        var recovered = await coordinator.IndexAsync();
+        Assert.True(recovered.IsComplete);
+        Assert.Equal(1, recovered.Indexed);
+        Assert.Single(store.Points);
+    }
+
+    [Fact]
     public void Profile_is_deterministic_and_changes_with_chunking_rules()
     {
         using var vault = new TemporaryVault();
@@ -239,11 +342,19 @@ public sealed class IndexingTests
         }
     }
 
-    private sealed class MemoryIndexStore : IKnowledgeIndexStore
+    private sealed class MemoryIndexStore : IKnowledgeIndexStore, IKnowledgeCollectionLifecycle
     {
         public Dictionary<Guid, IndexedChunkMetadata> Points { get; } = [];
         public int UpsertCalls { get; private set; }
+        public int RecreateCalls { get; private set; }
         public Task EnsureCollectionAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task RecreateCollectionAsync(CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            RecreateCalls++;
+            Points.Clear();
+            return Task.CompletedTask;
+        }
         public Task<IReadOnlyList<IndexedChunkMetadata>> GetIndexedChunksAsync(string vaultId, CancellationToken cancellationToken = default) =>
             Task.FromResult<IReadOnlyList<IndexedChunkMetadata>>(Points.Values.Where(point => point.VaultId == vaultId).ToArray());
 

@@ -12,6 +12,62 @@ namespace Knowledge.Indexing.IntegrationTests;
 public sealed class LocalIndexingTests
 {
     [Fact]
+    public async Task Qdrant_status_is_read_only_vault_scoped_paginated_and_fails_closed_on_bad_identity()
+    {
+        using var client = new QdrantClient("localhost", 6334, grpcTimeout: TimeSpan.FromSeconds(10));
+        try { await client.HealthAsync(); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new XunitException("Start local Qdrant with docker compose -f docker/docker-compose.yml up -d before running the indexing integration suite.");
+        }
+
+        var collection = "knowledge-status-test-" + Guid.NewGuid().ToString("N")[..12];
+        var store = new QdrantKnowledgeIndexStore(client, collection);
+        try
+        {
+            Assert.Equal(new KnowledgeIndexStatus(false, 0, 0), await store.GetStatusAsync("vault-a"));
+            await store.EnsureCollectionAsync();
+            Assert.Equal(new KnowledgeIndexStatus(true, 0, 0), await store.GetStatusAsync("vault-a"));
+
+            var vector = new float[KnowledgeIndexSchema.EmbeddingDimensions];
+            vector[0] = 1;
+            var points = Enumerable.Range(0, 260).Select(index =>
+            {
+                var point = new global::Qdrant.Client.Grpc.PointStruct { Id = Guid.NewGuid(), Vectors = vector };
+                point.Payload["vaultId"] = "vault-a";
+                point.Payload["documentId"] = $"document-{index / 2}";
+                return point;
+            }).ToArray();
+            var foreign = new global::Qdrant.Client.Grpc.PointStruct { Id = Guid.NewGuid(), Vectors = vector };
+            foreign.Payload["vaultId"] = "vault-b";
+            foreign.Payload["documentId"] = "foreign-document";
+            await client.UpsertAsync(collection, points, wait: true);
+            await client.UpsertAsync(collection, [foreign], wait: true);
+
+            var populated = await store.GetStatusAsync("vault-a");
+            Assert.Equal(130, populated.IndexedDocuments);
+            Assert.Equal(260, populated.IndexedChunks);
+            Assert.Equal(new KnowledgeIndexStatus(true, 1, 1), await store.GetStatusAsync("vault-b"));
+
+            var malformed = new global::Qdrant.Client.Grpc.PointStruct { Id = Guid.NewGuid(), Vectors = vector };
+            malformed.Payload["vaultId"] = "vault-a";
+            await client.UpsertAsync(collection, [malformed], wait: true);
+            await Assert.ThrowsAsync<InvalidDataException>(() => store.GetStatusAsync("vault-a"));
+
+            await client.DeleteCollectionAsync(collection);
+            await client.CreateCollectionAsync(collection,
+                new global::Qdrant.Client.Grpc.VectorParams { Size = 2, Distance = global::Qdrant.Client.Grpc.Distance.Cosine });
+            await store.RecreateCollectionAsync();
+            Assert.True(global::Knowledge.Qdrant.QdrantCollectionLayout.IsCompatible(await client.GetCollectionInfoAsync(collection)));
+            Assert.Equal(new KnowledgeIndexStatus(true, 0, 0), await store.GetStatusAsync("vault-a"));
+        }
+        finally
+        {
+            if (await client.CollectionExistsAsync(collection)) await client.DeleteCollectionAsync(collection);
+        }
+    }
+
+    [Fact]
     public async Task Pinned_onnx_indexes_to_local_qdrant_and_unchanged_run_skips_inference()
     {
         var root = FindRepositoryRoot();
@@ -54,6 +110,10 @@ public sealed class LocalIndexingTests
             Assert.Equal(1, first.EmbeddingCalls);
             var metadata = await store.GetIndexedChunksAsync("integration");
             var point = Assert.Single(metadata);
+            var status = await store.GetStatusAsync("integration");
+            Assert.True(status.CollectionExists);
+            Assert.Equal(1, status.IndexedDocuments);
+            Assert.Equal(1, status.IndexedChunks);
             Assert.Equal("Architecture.md", point.RelativePath);
             var stored = Assert.Single(await client.RetrieveAsync(collection, Guid.Parse(point.PointId), withPayload: true, withVectors: false));
             Assert.Equal("Architecture.md", stored.Payload["path"].StringValue);
@@ -78,6 +138,9 @@ public sealed class LocalIndexingTests
             Assert.Equal(1, second.Unchanged);
             Assert.Equal(0, second.EmbeddingCalls);
             Assert.Equal(1, embeddings.Calls);
+            status = await store.GetStatusAsync("integration");
+            Assert.Equal(1, status.IndexedDocuments);
+            Assert.Equal(1, status.IndexedChunks);
 
             var queryEmbeddings = new BgeQueryEmbeddingService(embeddings, new BertWordPieceTokenizer(vocabulary));
             var profile = IndexProfile.Create(new MarkdownIngestionOptions(options.Vault.Id, options.Vault.Path,
@@ -95,12 +158,37 @@ public sealed class LocalIndexingTests
             Assert.Equal(beforeSearch, await store.GetIndexedChunksAsync("integration"));
             Assert.Single(await client.RetrieveAsync(collection, otherVaultPointId, withPayload: true, withVectors: false));
 
+            var beforeRebuild = Assert.Single(await store.GetIndexedChunksAsync("integration"));
+            var rebuild = await coordinator.RebuildAsync();
+            Assert.True(rebuild.IsComplete, string.Join("; ", rebuild.Diagnostics.Select(diagnostic => diagnostic.Code)));
+            Assert.Equal(1, rebuild.Indexed);
+            Assert.Equal(1, rebuild.EmbeddingCalls);
+            var afterRebuild = Assert.Single(await store.GetIndexedChunksAsync("integration"));
+            Assert.Equal(beforeRebuild with { }, afterRebuild);
+            Assert.Empty(await client.RetrieveAsync(collection, otherVaultPointId, withPayload: true, withVectors: false));
+            var rebuiltSearch = Assert.Single(await retriever.SearchAsync(new KnowledgeSearchRequest("How does the indexer store vector points?")));
+            Assert.Equal(result.DocumentId, rebuiltSearch.DocumentId);
+            Assert.Equal(result.ChunkId, rebuiltSearch.ChunkId);
+
+            await client.DeleteCollectionAsync(collection);
+            var externallyDeletedRebuild = await coordinator.RebuildAsync();
+            Assert.True(externallyDeletedRebuild.IsComplete);
+            Assert.Equal(1, externallyDeletedRebuild.Indexed);
+            Assert.Equal(1, externallyDeletedRebuild.EmbeddingCalls);
+            Assert.True((await store.GetStatusAsync("integration")).CollectionExists);
+            Assert.Single(await retriever.SearchAsync(new KnowledgeSearchRequest("How does the indexer store vector points?")));
+
+            var noOp = await coordinator.IndexAsync();
+            Assert.True(noOp.IsComplete);
+            Assert.Equal(1, noOp.Unchanged);
+            Assert.Equal(0, noOp.EmbeddingCalls);
+
             File.Delete(Path.Combine(vault.Path, "Architecture.md"));
             var afterDelete = await coordinator.IndexAsync();
             Assert.True(afterDelete.IsComplete);
             Assert.Equal(1, afterDelete.StaleDeleted);
             Assert.Empty(await store.GetIndexedChunksAsync("integration"));
-            Assert.Single(await client.RetrieveAsync(collection, otherVaultPointId, withPayload: true, withVectors: false));
+            Assert.Empty(await client.RetrieveAsync(collection, otherVaultPointId, withPayload: true, withVectors: false));
         }
         finally
         {

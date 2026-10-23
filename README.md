@@ -4,11 +4,11 @@ A local-first .NET 10 knowledge platform with authoritative Markdown and a
 rebuildable Qdrant index. The architecture in `docs/` and decisions in `docs/adr/`
 govern implementation.
 
-**Milestone 3 complete:** The executable loads and validates configuration,
-reports vault existence and Qdrant connectivity, scans and chunks Markdown,
-generates local BGE-small embeddings through ONNX Runtime, and incrementally
-indexes documents in local Qdrant. Dense CLI search is implemented in Milestone 4;
-rebuild, benchmark evaluation, watching, and MCP hosting remain deferred. The
+**Milestone 5 implemented:** The executable loads and validates configuration,
+reports vault and vault-scoped index status, scans and chunks Markdown, generates
+local BGE-small embeddings through ONNX Runtime, incrementally indexes documents,
+rebuilds the configured Qdrant collection explicitly, and supports dense CLI
+search. Benchmark evaluation, watching, and MCP hosting remain deferred. The
 offline test suites pass; the live Qdrant/ONNX acceptance
 integration test and two-pass sample-vault CLI check pass. After fixing a parser
 bug involving fenced YAML examples, the real-vault check passed both runs with
@@ -92,13 +92,17 @@ and environment-variable expansion inside YAML paths are not performed; use an
 absolute path or an environment override.
 
 Status prints the application version, vault ID/path/existence, Qdrant gRPC
-endpoint/reachability, collection name, embedding model, and vector dimensions.
-Connectivity uses Qdrant's gRPC health RPC with a three-second deadline. It does
-not check collection existence or model assets.
+endpoint/reachability, collection name/existence, embedding model, vector
+dimensions, and the indexed document and chunk counts for the configured vault.
+Counts are read from identity payload fields only and status never loads model
+assets or changes Qdrant. The command can report operational state without model
+weights. A missing collection reports zero counts and returns `1`; unavailable or
+malformed count reads report counts as unavailable with a safe diagnostic.
 
-Exit codes: `0` means the vault exists and Qdrant responds; `1` means the vault is
-missing or Qdrant is unavailable; `2` means invalid configuration or command usage;
-`130` means cancellation.
+Exit codes: `0` means the vault exists, Qdrant responds, and the configured
+collection was inspected successfully; `1` means an operational problem such as
+a missing vault/collection, unavailable Qdrant, or failed count read; `2` means
+invalid configuration or command usage; `130` means cancellation.
 
 ## Print Markdown chunks
 
@@ -178,7 +182,8 @@ against a collection.
 
 The index profile is stored in each chunk payload. If the model, schema, tokenizer,
 chunker, or embedding-affecting settings change, indexing stops before point
-mutations and requests a fresh collection. Milestone 5 will add `rebuild`.
+mutations and requests a fresh collection. Use the explicit `rebuild` command to
+recreate the configured collection and index all eligible notes.
 Discovery must complete before point changes; a missing or unreadable vault cannot
 trigger stale-point deletion. Operational output contains metadata only, never
 note text or vectors.
@@ -226,7 +231,29 @@ Search prints the requested original Markdown and provenance to stdout. Applicat
 diagnostics go to stderr and contain operational metadata only; queries and note
 content are never logged or repeated in errors. Search reports the last indexed
 state, so run `index` after notes are changed, deleted, excluded, or opted out.
-`rebuild`, benchmark evaluation, and MCP hosting remain future milestones.
+Benchmark evaluation and MCP hosting remain future milestones.
+
+## Rebuild the configured collection
+
+`knowledge rebuild` requires the pinned local model and tokenizer assets, a fully
+discoverable vault, and local Qdrant. It validates the runtime and reads every
+eligible source file before deleting the configured collection. It then creates
+the current 384-dimensional cosine collection and indexes all eligible notes,
+even when their content matches the previous index. A fully discovered empty
+vault produces an empty collection. Malformed notes or failures after recreation
+can leave a partial collection; rerun `index` to repair incomplete documents or
+rerun `rebuild` to start over.
+
+Rebuild deletes every point in the configured collection, including points for
+other vault IDs. Use a dedicated collection and run only one index/rebuild process
+against it at a time. Rebuild is not transactional: cancellation or a failure
+after collection deletion can leave missing or partial derived state. The source
+Markdown is never changed.
+
+```sh
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- \
+  rebuild --config knowledge.milestone4.yaml
+```
 
 The `Knowledge.Indexer.Tests` suite exercises synchronization and retry behavior
 without Docker or model assets. The explicitly invoked

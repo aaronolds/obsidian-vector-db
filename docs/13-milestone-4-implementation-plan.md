@@ -29,8 +29,8 @@ Included:
 - Optional limit, path-prefix, and exact-tag filters.
 - CLI search, safe diagnostics, unit tests, and explicit live acceptance checks.
 
-Deferred: rebuild and expanded status (Milestone 5), the 20-query benchmark and
-Hit@5 target (Milestone 6), MCP and `get_note` (Milestone 7), hybrid/sparse search,
+Deferred: the 20-query benchmark and Hit@5 target (Milestone 6), MCP and `get_note`
+(Milestone 7), hybrid/sparse search,
 reranking, diversification, graph traversal, watching, cloud services, migrations,
 and concurrent-index consistency guarantees. Preserve existing commands and all
 Milestone 3 indexing safety gates.

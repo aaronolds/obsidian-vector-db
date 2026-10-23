@@ -100,15 +100,22 @@ does not guarantee the model input limit. Model assets are never downloaded at r
 `scripts/setup-bge-model.sh` to install the pinned ONNX weight file.
 
 Changing index-defining settings requires a fresh collection in Milestone 3;
-Milestone 5 adds the `rebuild` command. The indexer stores an index-profile
-fingerprint in each chunk payload and stops before point writes if an existing
-index has a different profile.
+Milestone 5 provides `knowledge rebuild` to explicitly recreate the configured
+collection and repopulate it from eligible Markdown. Ordinary `index` stores an
+index-profile fingerprint in each chunk payload and stops before point writes if
+an existing index has a different profile. `status` can inspect configuration and
+Qdrant state even when configured model asset paths are absent or missing.
 
 ### Qdrant
 
 The collection is derived state. `knowledge index` creates a missing collection
 using a single unnamed 384-dimensional cosine vector and checks existing vector
-layout before writing. It does not recreate an incompatible collection.
+layout before writing. It does not recreate an incompatible collection. The
+explicit `rebuild` command deletes and recreates the whole configured collection,
+including points for other vault IDs, so use a dedicated collection. Before the
+deletion it validates local inference assets, completes vault discovery, and
+checks every candidate source can be read. A failure after deletion can leave a
+partial collection; a later `index` or `rebuild` repairs derived state.
 
 Changing the collection name does not migrate data automatically.
 
