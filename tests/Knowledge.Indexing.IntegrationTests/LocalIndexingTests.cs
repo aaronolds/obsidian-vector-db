@@ -2,6 +2,7 @@ using Knowledge.Core;
 using Knowledge.Embeddings;
 using Knowledge.Indexer.Configuration;
 using Knowledge.Indexer.Indexing;
+using Knowledge.Indexer.Evaluation;
 using Knowledge.Markdown;
 using Knowledge.Qdrant;
 using Qdrant.Client;
@@ -157,6 +158,21 @@ public sealed class LocalIndexingTests
             Assert.Equal(2, embeddings.Calls);
             Assert.Equal(beforeSearch, await store.GetIndexedChunksAsync("integration"));
             Assert.Single(await client.RetrieveAsync(collection, otherVaultPointId, withPayload: true, withVectors: false));
+
+            var evalIngestion = RetrievalBenchmarkSourceValidator.CreateOptions(options);
+            var evalIngestor = new MarkdownIngestor(new BertWordPieceTokenizer(vocabulary));
+            var benchmark = new RetrievalBenchmark("synthetic-integration", Enumerable.Range(0, 20).Select(index =>
+                new RetrievalBenchmarkEntry($"integration-{index}", "How does the indexer save vector points?",
+                    ["Architecture.md"], "semantic")).ToArray());
+            var evalFiles = RetrievalBenchmarkSourceValidator.ValidateSources(benchmark, evalIngestor, evalIngestion, CancellationToken.None);
+            var sourceSnapshot = RetrievalBenchmarkSourceValidator.CreateSnapshotHash(evalIngestor, evalFiles, CancellationToken.None);
+            var evalReport = await RetrievalBenchmarkEvaluator.EvaluateAsync(benchmark, retriever, options,
+                evalIngestor, evalIngestion, sourceSnapshot, profile, CancellationToken.None,
+                new RetrievalBenchmarkEnvironment(QdrantVersion: "local-test"));
+            Assert.Equal(20, evalReport.Total);
+            Assert.Equal(20, evalReport.Results.Count);
+            Assert.Equal("Architecture.md", Assert.Single(evalReport.Results[0].Results).Path);
+            Assert.Equal(beforeSearch, await store.GetIndexedChunksAsync("integration"));
 
             var beforeRebuild = Assert.Single(await store.GetIndexedChunksAsync("integration"));
             var rebuild = await coordinator.RebuildAsync();
