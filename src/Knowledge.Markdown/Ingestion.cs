@@ -330,17 +330,21 @@ public sealed class MarkdownIngestor
 
     private static string? FindFirstH1(string[] lines, int start)
     {
-        var inFence = false;
+        string? fence = null;
         for (var index = start; index < lines.Length; index++)
         {
             var line = lines[index];
             var trimmed = line.TrimStart();
-            if (trimmed.StartsWith("```", StringComparison.Ordinal) || trimmed.StartsWith("~~~", StringComparison.Ordinal))
+            if (fence is not null)
             {
-                inFence = !inFence;
+                if (trimmed.StartsWith(fence, StringComparison.Ordinal)) fence = null;
                 continue;
             }
-            if (inFence) continue;
+            if (trimmed.StartsWith("```", StringComparison.Ordinal) || trimmed.StartsWith("~~~", StringComparison.Ordinal))
+            {
+                fence = trimmed[..3];
+                continue;
+            }
             if (TryHeading(line, out var level, out var heading) && level == 1) return heading;
             if (index + 1 < lines.Length && !string.IsNullOrWhiteSpace(line) &&
                 Regex.IsMatch(lines[index + 1], @"^\s*=+\s*$")) return line.Trim();
