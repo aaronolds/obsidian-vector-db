@@ -185,7 +185,7 @@ public sealed class McpServerIntegrationTests
             File.WriteAllText(configPath, $"""
                 vault:
                   id: {options.Vault.Id}
-                  path: "{options.Vault.Path}"
+                  path: '{options.Vault.Path.Replace("'", "''")}'
                 index:
                   include: ["**/*.md"]
                   exclude: [".obsidian/**"]
@@ -199,8 +199,8 @@ public sealed class McpServerIntegrationTests
                   provider: onnx
                   model: BAAI/bge-small-en-v1.5
                   dimensions: 384
-                  modelPath: "{options.Embedding.ModelPath}"
-                  tokenizerPath: "{options.Embedding.TokenizerPath}"
+                  modelPath: '{options.Embedding.ModelPath.Replace("'", "''")}'
+                  tokenizerPath: '{options.Embedding.TokenizerPath.Replace("'", "''")}'
                 qdrant:
                   host: localhost
                   port: 6334
