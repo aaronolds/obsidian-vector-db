@@ -119,7 +119,7 @@ public static partial class RetrievalBenchmarkLoader
     public static bool IsCanonicalRelativeMarkdownPath(string path)
     {
         if (string.IsNullOrWhiteSpace(path) || path.Contains('\\') || path.Contains(':') || path.Contains('\0') ||
-            Path.IsPathRooted(path) || !path.EndsWith(".md", StringComparison.Ordinal)) return false;
+            Path.IsPathRooted(path) || !path.EndsWith(".md", StringComparison.OrdinalIgnoreCase)) return false;
         var segments = path.Split('/');
         return segments.All(segment => segment.Length > 0 && segment is not ("." or "..") && !HasControl(segment));
     }
