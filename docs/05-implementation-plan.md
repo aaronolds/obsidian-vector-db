@@ -200,6 +200,11 @@ Deleting the collection and rebuilding restores usable search.
 
 ## 8. Milestone 6: Retrieval benchmark
 
+Implementation status: local evaluator implemented; real-vault benchmark
+authoring, baseline capture, and manual review are pending. See the
+[detailed implementation plan](16-milestone-6-implementation-plan.md) for
+behavior and remaining acceptance gates.
+
 ### Objectives
 
 - Create at least 20 benchmark queries.

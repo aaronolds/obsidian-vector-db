@@ -41,6 +41,7 @@ The documentation in this package reflects the decisions reached during architec
 | `13-milestone-4-implementation-plan.md` | Dense CLI retrieval implementation, query formatting, filters, and verification evidence |
 | `14-github-automation.md` | Build/audit workflows, dependency maintenance, and manual branch-protection/Copilot review activation |
 | `15-milestone-5-implementation-plan.md` | Explicit collection rebuild, vault-scoped status, and verification evidence |
+| `16-milestone-6-implementation-plan.md` | Evaluator behavior, pending real-vault Hit@5 baseline, and review gates |
 | `adr/` | Architecture Decision Records |
 
 ## Initial technology baseline

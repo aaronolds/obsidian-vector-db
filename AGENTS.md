@@ -4,13 +4,15 @@
 
 This is a local-first .NET 10 knowledge platform for Obsidian vaults. Markdown
 files are the source of truth; Qdrant is intended to be rebuildable derived
-state. The repository currently implements through Milestone 5: configuration
-and expanded status, Markdown ingestion/chunk inspection, local BGE-small embeddings,
+state. The repository implements through Milestone 5, with the Milestone 6 local
+Hit@5 evaluator added but the real-vault benchmark and baseline still pending.
+The implementation includes configuration and expanded status, Markdown
+ingestion/chunk inspection, local BGE-small embeddings,
 document-level incremental indexing in local Qdrant, and dense CLI retrieval with
 optional filters, plus explicit collection rebuild. Milestone 3 acceptance
 includes live Qdrant/ONNX validation and a successful real-vault two-pass check;
 the unchanged second pass performed zero embedding calls and zero chunk writes.
-Benchmark evaluation, watching, and MCP hosting are not implemented yet.
+Real-vault benchmark evaluation, watching, and MCP hosting are not implemented yet.
 Do not treat roadmap items as existing behavior.
 
 Read the relevant architecture and decisions in `docs/` before changing
@@ -102,6 +104,7 @@ dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- embedding
 dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- index --config knowledge.milestone3.yaml
 dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- rebuild --config knowledge.milestone4.yaml
 dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- search "How does OBO work?" --config knowledge.milestone4.yaml
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- evaluate --benchmark eval/local/retrieval-benchmark.json --output eval/local/dense-baseline.json --config knowledge.local.yaml
 ```
 
 `status` checks configuration, vault existence, Qdrant reachability, collection
@@ -124,6 +127,12 @@ exact-tag filters are optional. Query output includes requested Markdown content
 application logs and errors exclude query and note text. Milestone 4 finalized
 the query profile at embedding schema version 2, so Milestone 3 collections need
 a fresh collection and reindex before search.
+
+`evaluate` requires 20–50 verified benchmark questions, eligible expected
+sources, pinned local assets, and an existing compatible collection. It performs
+read-only dense retrieval with a fixed limit of five, scores exact expected
+paths, and writes a metadata-only report. Keep private benchmark/report files
+under ignored `eval/local/`; see `eval/README.md`.
 
 `rebuild` requires pinned local assets, completes vault discovery, and checks all
 candidate sources can be read before deleting the configured collection. It then

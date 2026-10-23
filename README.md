@@ -4,12 +4,13 @@ A local-first .NET 10 knowledge platform with authoritative Markdown and a
 rebuildable Qdrant index. The architecture in `docs/` and decisions in `docs/adr/`
 govern implementation.
 
-**Milestone 5 implemented:** The executable loads and validates configuration,
-reports vault and vault-scoped index status, scans and chunks Markdown, generates
-local BGE-small embeddings through ONNX Runtime, incrementally indexes documents,
-rebuilds the configured Qdrant collection explicitly, and supports dense CLI
-search. Benchmark evaluation, watching, and MCP hosting remain deferred. The
-offline test suites pass; the live Qdrant/ONNX acceptance
+**Milestone 6 evaluator implemented; real-vault baseline pending:** The executable
+loads and validates configuration, reports vault and vault-scoped index status,
+scans and chunks Markdown, generates local BGE-small embeddings through ONNX
+Runtime, incrementally indexes documents, rebuilds the configured Qdrant
+collection explicitly, supports dense CLI search, and offers local dense Hit@5
+evaluation. Watching and MCP hosting remain deferred. The offline test suites pass;
+the live Qdrant/ONNX acceptance
 integration test and two-pass sample-vault CLI check pass. After fixing a parser
 bug involving fenced YAML examples, the real-vault check passed both runs with
 parser profile v2: 408 notes scanned, 402 indexed, 6 empty, and 3,692 chunks
@@ -231,7 +232,29 @@ Search prints the requested original Markdown and provenance to stdout. Applicat
 diagnostics go to stderr and contain operational metadata only; queries and note
 content are never logged or repeated in errors. Search reports the last indexed
 state, so run `index` after notes are changed, deleted, excluded, or opted out.
-Benchmark evaluation and MCP hosting remain future milestones.
+
+## Evaluate dense retrieval
+
+The `evaluate` command checks a local benchmark against the existing index. The
+benchmark must contain at least 20 verified questions and expected vault-relative
+Markdown paths. It scores exact path matches among the first five ranked chunks,
+reports Hit@5 overall and by category, and writes metadata without query text or
+note bodies. Evaluation never indexes or modifies Qdrant.
+
+Keep real-vault benchmark and report files under the ignored `eval/local/`
+directory because their paths and identifiers may be sensitive:
+
+```sh
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj -- \
+  evaluate --benchmark eval/local/retrieval-benchmark.json \
+  --output eval/local/dense-baseline.json --config knowledge.local.yaml
+```
+
+The 85% Hit@5 goal is advisory. Review misses and representative successes
+manually and record the dense baseline before considering later retrieval changes.
+See [eval/README.md](eval/README.md) for dataset and privacy guidance. The
+checked-in configuration uses repository documentation as a sample vault; it
+does not supply a verified real-vault benchmark.
 
 ## Rebuild the configured collection
 

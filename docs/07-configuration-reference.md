@@ -146,6 +146,13 @@ formatting identifier is part of the index profile and embedding schema version
 2; an older Milestone 3 collection must be reindexed into a fresh collection
 before search. Search is read-only and does not create a missing collection.
 
+`knowledge evaluate --benchmark <path> --output <path> [--config <path>]`
+requires dense mode, `retrieval.maxLimit` of at least 5, the pinned local model
+and tokenizer assets, and an existing compatible collection. It uses an exact
+top-five chunk cutoff regardless of `retrieval.defaultLimit`, applies no search
+filters, and is read-only. Benchmark and report paths are relative to the
+working directory; keep private real-vault files under ignored `eval/local/`.
+
 ## 4. Environment overrides
 
 Recommended convention:

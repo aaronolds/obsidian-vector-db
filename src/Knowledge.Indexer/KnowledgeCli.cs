@@ -12,18 +12,19 @@ using Microsoft.ML.OnnxRuntime;
 using Grpc.Core;
 using Qdrant.Client;
 using Knowledge.Indexer.Indexing;
+using Knowledge.Indexer.Evaluation;
 
 namespace Knowledge.Indexer;
 
 public static class KnowledgeCli
 {
-    private const string Usage = "Usage: knowledge status [--config <path>] | knowledge chunks [--config <path>] | knowledge embeddings [--config <path>] | knowledge index [--config <path>] | knowledge rebuild [--config <path>] | knowledge search <query> [--limit <n>] [--path <prefix>] [--tag <tag>]... [--config <path>]\nRebuild deletes and recreates the configured collection, including points for any other vault stored there. Use a dedicated collection.";
+    private const string Usage = "Usage: knowledge status [--config <path>] | knowledge chunks [--config <path>] | knowledge embeddings [--config <path>] | knowledge index [--config <path>] | knowledge rebuild [--config <path>] | knowledge search <query> [--limit <n>] [--path <prefix>] [--tag <tag>]... [--config <path>] | knowledge evaluate --benchmark <path> --output <path> [--config <path>]\nRebuild deletes and recreates the configured collection, including points for any other vault stored there. Use a dedicated collection.";
 
     public static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error,
         CancellationToken cancellationToken = default,
         Func<KnowledgeOptions, IKnowledgeRetriever>? retrieverFactory = null)
     {
-        if (args is ["--help"] or ["-h"] or ["status", "--help"] or ["chunks", "--help"] or ["embeddings", "--help"] or ["index", "--help"] or ["rebuild", "--help"] or ["search", "--help"])
+        if (args is ["--help"] or ["-h"] or ["status", "--help"] or ["chunks", "--help"] or ["embeddings", "--help"] or ["index", "--help"] or ["rebuild", "--help"] or ["search", "--help"] or ["evaluate", "--help"])
         {
             await output.WriteLineAsync(Usage);
             return 0;
@@ -39,6 +40,8 @@ public static class KnowledgeCli
             return await RunRebuildAsync(args[1..], output, error, cancellationToken);
         if (command == "search")
             return await RunSearchAsync(args[1..], output, error, cancellationToken, retrieverFactory);
+        if (command == "evaluate")
+            return await RunEvaluateAsync(args[1..], output, error, cancellationToken, retrieverFactory);
 
         var configPath = args switch
         {
@@ -248,6 +251,208 @@ public static class KnowledgeCli
         {
             await error.WriteLineAsync("Search cancelled.");
             return 130;
+        }
+    }
+
+    private static async Task<int> RunEvaluateAsync(string[] args, TextWriter output, TextWriter error,
+        CancellationToken cancellationToken, Func<KnowledgeOptions, IKnowledgeRetriever>? retrieverFactory)
+    {
+        EvaluateArguments parsed;
+        try { parsed = EvaluateArguments.Parse(args); }
+        catch (ArgumentException)
+        {
+            await error.WriteLineAsync(Usage);
+            return 2;
+        }
+
+        try
+        {
+            using var configuration = KnowledgeConfiguration.Load(parsed.ConfigPath ?? "knowledge.yaml");
+            var services = new ServiceCollection();
+            services.AddKnowledgeOptions(configuration, parsed.ConfigPath ?? "knowledge.yaml",
+                validateEmbeddingAssets: retrieverFactory is null);
+            using var provider = services.BuildServiceProvider();
+            var options = provider.GetRequiredService<IOptions<KnowledgeOptions>>().Value;
+            if (options.Retrieval.Mode != "dense" || options.Retrieval.MaxLimit < RetrievalBenchmarkEvaluator.K)
+                throw new RetrievalBenchmarkException("Evaluation requires dense mode and retrieval.maxLimit of at least five.");
+
+            var benchmarkPath = Path.GetFullPath(parsed.BenchmarkPath);
+            var reportPath = Path.GetFullPath(parsed.OutputPath);
+            ValidateReportDestination(reportPath, benchmarkPath, parsed.ConfigPath ?? "knowledge.yaml", options.Vault.Path);
+            var benchmark = RetrievalBenchmarkLoader.Load(benchmarkPath);
+            if (string.IsNullOrWhiteSpace(options.Embedding.TokenizerPath) || !File.Exists(options.Embedding.TokenizerPath))
+                throw new EmbeddingAssetException("knowledge evaluate requires embedding.tokenizerPath for the pinned local BGE model.");
+
+            BertWordPieceTokenizer tokenizer;
+            try { tokenizer = new BertWordPieceTokenizer(options.Embedding.TokenizerPath); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                throw new EmbeddingAssetException("Configured local tokenizer asset could not be loaded.");
+            }
+            foreach (var entry in benchmark.Entries) _ = BgeQueryEmbeddingService.FormatQuery(entry.Query, tokenizer);
+
+            var ingestion = RetrievalBenchmarkSourceValidator.CreateOptions(options);
+            var ingestor = new MarkdownIngestor(tokenizer);
+            var sourceFiles = RetrievalBenchmarkSourceValidator.ValidateSources(benchmark, ingestor, ingestion, cancellationToken);
+            var sourceSnapshot = RetrievalBenchmarkSourceValidator.CreateSnapshotHash(ingestor, sourceFiles, cancellationToken);
+            var indexProfile = IndexProfile.Create(ingestion, options.Embedding);
+            var environment = new RetrievalBenchmarkEnvironment(
+                RetrievalBenchmarkEvaluator.ReadGitRevision(Directory.GetCurrentDirectory()));
+            KnowledgeIndexStatus? indexStatus = null;
+            IKnowledgeRetriever retriever;
+            if (retrieverFactory is not null)
+            {
+                retriever = retrieverFactory(options);
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(options.Embedding.ModelPath) || !File.Exists(options.Embedding.ModelPath))
+                    throw new EmbeddingAssetException("knowledge evaluate requires embedding.modelPath for the pinned local BGE model.");
+                using var embeddings = new OnnxEmbeddingService(options.Embedding.ModelPath, options.Embedding.TokenizerPath);
+                using var client = new QdrantClient(options.Qdrant.Host, options.Qdrant.Port, grpcTimeout: TimeSpan.FromSeconds(10));
+                var qdrantHealth = await client.HealthAsync(cancellationToken);
+                indexStatus = await new QdrantKnowledgeIndexStore(client, options.Qdrant.Collection)
+                    .GetStatusAsync(options.Vault.Id, cancellationToken);
+                if (!indexStatus.CollectionExists)
+                    throw new KnowledgeSearchCompatibilityException("Search collection is missing; run knowledge index with this configuration first.");
+                retriever = CreateRetriever(options, client, new BgeQueryEmbeddingService(embeddings, tokenizer));
+                return await RunBenchmarkAndWriteAsync(benchmark, retriever, options, ingestor, ingestion,
+                    sourceSnapshot, indexProfile, reportPath, error, cancellationToken,
+                    environment with { QdrantVersion = qdrantHealth.Version,
+                        IndexedDocuments = indexStatus.IndexedDocuments, IndexedChunks = indexStatus.IndexedChunks });
+            }
+
+            return await RunBenchmarkAndWriteAsync(benchmark, retriever, options, ingestor, ingestion,
+                sourceSnapshot, indexProfile, reportPath, error, cancellationToken, environment);
+        }
+        catch (OptionsValidationException ex)
+        {
+            foreach (var failure in ex.Failures) await error.WriteLineAsync($"Configuration error: {failure}");
+            return 2;
+        }
+        catch (KnowledgeConfigurationException ex)
+        {
+            await error.WriteLineAsync($"Configuration error: {ex.Message}");
+            return 2;
+        }
+        catch (RetrievalBenchmarkException ex)
+        {
+            await error.WriteLineAsync($"Benchmark error: {ex.Message}");
+            return 2;
+        }
+        catch (KnowledgeSearchCompatibilityException ex)
+        {
+            await error.WriteLineAsync($"Search compatibility error: {ex.Message}");
+            return 2;
+        }
+        catch (EmbeddingAssetException ex)
+        {
+            await error.WriteLineAsync($"Embedding asset error: {ex.Message}");
+            return 2;
+        }
+        catch (ArgumentException ex)
+        {
+            await error.WriteLineAsync($"Evaluation configuration or query is invalid: {ex.Message}");
+            return 2;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            await error.WriteLineAsync("Evaluation cancelled.");
+            return 130;
+        }
+        catch (RpcException ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            await error.WriteLineAsync($"Qdrant error [{ex.StatusCode}]: evaluation did not complete.");
+            return 1;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or OnnxRuntimeException)
+        {
+            await error.WriteLineAsync("Evaluation inference or returned data was invalid.");
+            return 1;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            await error.WriteLineAsync("Evaluation input or local assets could not be read, or the report could not be written.");
+            return 1;
+        }
+        catch (Exception) when (cancellationToken.IsCancellationRequested)
+        {
+            await error.WriteLineAsync("Evaluation cancelled.");
+            return 130;
+        }
+    }
+
+    private static async Task<int> RunBenchmarkAndWriteAsync(RetrievalBenchmark benchmark,
+        IKnowledgeRetriever retriever, KnowledgeOptions options, MarkdownIngestor ingestor,
+        MarkdownIngestionOptions ingestion, string sourceSnapshot,
+        string indexProfile, string reportPath, TextWriter error, CancellationToken cancellationToken,
+        RetrievalBenchmarkEnvironment environment)
+    {
+        var report = await RetrievalBenchmarkEvaluator.EvaluateAsync(benchmark, retriever, options, ingestor,
+            ingestion, sourceSnapshot, indexProfile, cancellationToken, environment);
+        var currentFiles = ingestor.Discover(ingestion, cancellationToken);
+        if (!currentFiles.IsComplete || RetrievalBenchmarkSourceValidator.CreateSnapshotHash(ingestor,
+                currentFiles.Files, cancellationToken) != sourceSnapshot)
+            throw new IOException("Vault sources changed during evaluation.");
+        try
+        {
+            await RetrievalBenchmarkEvaluator.WriteReportAtomicallyAsync(reportPath, report, cancellationToken);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            await error.WriteLineAsync("Benchmark report could not be written.");
+            return 1;
+        }
+        foreach (var category in report.Categories)
+            await error.WriteLineAsync($"{category.Category}: {category.Passed}/{category.Total} Hit@5 ({category.HitAt5:P1})");
+        await error.WriteLineAsync($"Dense Hit@5: {report.Passed}/{report.Total} ({report.HitAt5:P1}); target met: {report.TargetMet.ToString().ToLowerInvariant()}.");
+        return 0;
+    }
+
+    private static void ValidateReportDestination(string reportPath, string benchmarkPath, string configPath, string vaultPath)
+    {
+        var comparer = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        var configFullPath = Path.GetFullPath(configPath);
+        if (comparer.Equals(reportPath, benchmarkPath) || comparer.Equals(reportPath, configFullPath) ||
+            Path.GetExtension(reportPath) != ".json")
+            throw new RetrievalBenchmarkException("Report path must be a separate JSON file.");
+        var root = Path.GetFullPath(vaultPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var comparison = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
+            ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        if (reportPath.Equals(root, comparison) || reportPath.StartsWith(root + Path.DirectorySeparatorChar, comparison))
+            throw new RetrievalBenchmarkException("Report destination must be outside the configured vault.");
+    }
+
+    private sealed record EvaluateArguments(string BenchmarkPath, string OutputPath, string? ConfigPath)
+    {
+        public static EvaluateArguments Parse(string[] args)
+        {
+            string? benchmark = null;
+            string? output = null;
+            string? config = null;
+            for (var index = 0; index < args.Length; index++)
+            {
+                var option = args[index];
+                switch (option)
+                {
+                    case "--benchmark": benchmark = ReadOnce(benchmark, args, ref index, option); break;
+                    case "--output": output = ReadOnce(output, args, ref index, option); break;
+                    case "--config": config = ReadOnce(config, args, ref index, option); break;
+                    default: throw new ArgumentException("Unknown evaluation option.");
+                }
+            }
+            if (string.IsNullOrWhiteSpace(benchmark) || string.IsNullOrWhiteSpace(output))
+                throw new ArgumentException("Benchmark and report paths are required.");
+            return new EvaluateArguments(benchmark, output, config);
+        }
+
+        private static string ReadOnce(string? current, string[] args, ref int index, string option)
+        {
+            if (current is not null || index + 1 >= args.Length || args[index + 1].StartsWith("--", StringComparison.Ordinal) ||
+                string.IsNullOrWhiteSpace(args[index + 1]))
+                throw new ArgumentException($"Invalid {option} option.");
+            return args[++index];
         }
     }
 
