@@ -272,7 +272,13 @@ public static class KnowledgeCli
             services.AddKnowledgeOptions(configuration, parsed.ConfigPath ?? "knowledge.yaml",
                 validateEmbeddingAssets: retrieverFactory is null);
             using var provider = services.BuildServiceProvider();
-            var options = provider.GetRequiredService<IOptions<KnowledgeOptions>>().Value;
+            KnowledgeOptions options;
+            try { options = provider.GetRequiredService<IOptions<KnowledgeOptions>>().Value; }
+            catch (InvalidOperationException)
+            {
+                await error.WriteLineAsync("Evaluation configuration contains an incompatible value or unknown setting.");
+                return 2;
+            }
             if (options.Retrieval.Mode != "dense" || options.Retrieval.MaxLimit < RetrievalBenchmarkEvaluator.K)
                 throw new RetrievalBenchmarkException("Evaluation requires dense mode and retrieval.maxLimit of at least five.");
 
