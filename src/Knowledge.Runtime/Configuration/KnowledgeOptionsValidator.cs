@@ -2,7 +2,7 @@ using System.Net;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
-namespace Knowledge.Indexer.Configuration;
+namespace Knowledge.Runtime.Configuration;
 
 public sealed class KnowledgeOptionsValidator(bool validateEmbeddingAssets = true) : IValidateOptions<KnowledgeOptions>
 {

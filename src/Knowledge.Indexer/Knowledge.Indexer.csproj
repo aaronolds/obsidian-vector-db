@@ -13,11 +13,8 @@
     <ProjectReference Include="../Knowledge.Markdown/Knowledge.Markdown.csproj" />
     <ProjectReference Include="../Knowledge.Embeddings/Knowledge.Embeddings.csproj" />
     <ProjectReference Include="../Knowledge.Qdrant/Knowledge.Qdrant.csproj" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <ProjectReference Include="../Knowledge.Runtime/Knowledge.Runtime.csproj" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
-    <PackageReference Include="YamlDotNet" />
   </ItemGroup>
 
 </Project>

@@ -228,6 +228,12 @@ If the baseline misses the target, analyze failures before changing architecture
 
 ## 9. Milestone 7: MCP server
 
+Implementation status: implemented on 2026-10-23. Local protocol and note-reader
+tests pass; live Qdrant/ONNX search-equivalence acceptance remains pending because
+the pinned weights and running local Qdrant were unavailable in this checkout.
+See the detailed [Milestone 7 implementation plan](17-milestone-7-implementation-plan.md)
+for implementation evidence and the outstanding live gate.
+
 ### Objectives
 
 Expose:

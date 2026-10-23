@@ -1,4 +1,6 @@
-using Knowledge.Indexer.Configuration;
+using Knowledge.Runtime.Configuration;
+using Knowledge.Runtime;
+using Knowledge.Runtime.Indexing;
 using Knowledge.Qdrant;
 using Knowledge.Markdown;
 using Knowledge.Embeddings;
@@ -183,14 +185,8 @@ public static class KnowledgeCli
                     throw new EmbeddingAssetException("knowledge search requires embedding.modelPath and embedding.tokenizerPath for the pinned local BGE model.");
                 var tokenizer = new BertWordPieceTokenizer(options.Embedding.TokenizerPath);
                 _ = BgeQueryEmbeddingService.FormatQuery(request.Query, tokenizer);
-                var embeddings = new OnnxEmbeddingService(options.Embedding.ModelPath, options.Embedding.TokenizerPath);
-                using (embeddings)
-                using (var client = new QdrantClient(options.Qdrant.Host, options.Qdrant.Port, grpcTimeout: TimeSpan.FromSeconds(10)))
-                {
-                    retriever = CreateRetriever(options, client,
-                        new BgeQueryEmbeddingService(embeddings, tokenizer));
-                    await RenderSearchAsync(retriever, request, output, error, cancellationToken);
-                }
+                using var search = KnowledgeSearchSession.Create(options);
+                await RenderSearchAsync(search.Retriever, request, output, error, cancellationToken);
                 return 0;
             }
 
@@ -314,14 +310,14 @@ public static class KnowledgeCli
             {
                 if (string.IsNullOrWhiteSpace(options.Embedding.ModelPath) || !File.Exists(options.Embedding.ModelPath))
                     throw new EmbeddingAssetException("knowledge evaluate requires embedding.modelPath for the pinned local BGE model.");
-                using var embeddings = new OnnxEmbeddingService(options.Embedding.ModelPath, options.Embedding.TokenizerPath);
-                using var client = new QdrantClient(options.Qdrant.Host, options.Qdrant.Port, grpcTimeout: TimeSpan.FromSeconds(10));
+                using var search = KnowledgeSearchSession.Create(options);
+                var client = search.Client;
                 var qdrantHealth = await client.HealthAsync(cancellationToken);
                 indexStatus = await new QdrantKnowledgeIndexStore(client, options.Qdrant.Collection)
                     .GetStatusAsync(options.Vault.Id, cancellationToken);
                 if (!indexStatus.CollectionExists)
                     throw new KnowledgeSearchCompatibilityException("Search collection is missing; run knowledge index with this configuration first.");
-                retriever = CreateRetriever(options, client, new BgeQueryEmbeddingService(embeddings, tokenizer));
+                retriever = search.Retriever;
                 return await RunBenchmarkAndWriteAsync(benchmark, retriever, options, ingestor, ingestion,
                     sourceSnapshot, indexProfile, reportPath, error, cancellationToken,
                     environment with { QdrantVersion = qdrantHealth.Version,
@@ -460,17 +456,6 @@ public static class KnowledgeCli
                 throw new ArgumentException($"Invalid {option} option.");
             return args[++index];
         }
-    }
-
-    private static IKnowledgeRetriever CreateRetriever(KnowledgeOptions options, QdrantClient client,
-        IQueryEmbeddingService queryEmbeddings)
-    {
-        var ingestion = new MarkdownIngestionOptions(options.Vault.Id, options.Vault.Path,
-            options.Index.Include, options.Index.Exclude, options.Index.FrontmatterOptOutField,
-            options.Chunking.TargetTokens, options.Chunking.SoftMaxTokens, options.Chunking.OverlapTokens);
-        var profile = IndexProfile.Create(ingestion, options.Embedding);
-        return new QdrantKnowledgeRetriever(client, options.Qdrant.Collection, options.Vault.Id,
-            profile, queryEmbeddings, options.Retrieval.MaxLimit);
     }
 
     private static async Task RenderSearchAsync(IKnowledgeRetriever retriever, KnowledgeSearchRequest request,

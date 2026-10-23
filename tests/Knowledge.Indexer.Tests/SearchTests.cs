@@ -1,6 +1,6 @@
 using Knowledge.Core;
 using Knowledge.Indexer;
-using Knowledge.Indexer.Configuration;
+using Knowledge.Runtime.Configuration;
 using Knowledge.Qdrant;
 
 namespace Knowledge.Indexer.Tests;

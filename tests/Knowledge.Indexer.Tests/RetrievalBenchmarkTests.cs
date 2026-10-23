@@ -53,7 +53,7 @@ public sealed class RetrievalBenchmarkTests
             $"query-{i}", $"query text {i}", [$"Note{i}.md"], i < 10 ? "semantic" : "exact-term",
             ["TERM_SENTINEL"])).ToArray();
         var benchmark = new RetrievalBenchmark("hash", entries);
-        var options = new Knowledge.Indexer.Configuration.KnowledgeOptions
+        var options = new Knowledge.Runtime.Configuration.KnowledgeOptions
         {
             Vault = new() { Id = "test-vault", Path = vault.Path },
             Index = new() { Include = ["**/*.md"] }
@@ -161,7 +161,7 @@ public sealed class RetrievalBenchmarkTests
     {
         using var vault = new TemporaryVault();
         for (var i = 0; i < 20; i++) vault.Write($"Note{i}.md", $"# Note {i}\nBody.");
-        var options = new Knowledge.Indexer.Configuration.KnowledgeOptions
+        var options = new Knowledge.Runtime.Configuration.KnowledgeOptions
         {
             Vault = new() { Id = "test", Path = vault.Path }, Index = new() { Include = ["**/*.md"] }
         };

@@ -1,4 +1,4 @@
-namespace Knowledge.Indexer.Configuration;
+namespace Knowledge.Runtime.Configuration;
 
 public sealed class KnowledgeOptions
 {

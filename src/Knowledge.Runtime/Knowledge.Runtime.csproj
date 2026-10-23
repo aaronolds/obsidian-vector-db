@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../Knowledge.Core/Knowledge.Core.csproj" />
+    <ProjectReference Include="../Knowledge.Markdown/Knowledge.Markdown.csproj" />
+    <ProjectReference Include="../Knowledge.Embeddings/Knowledge.Embeddings.csproj" />
+    <ProjectReference Include="../Knowledge.Qdrant/Knowledge.Qdrant.csproj" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="YamlDotNet" />
+  </ItemGroup>
+
+</Project>

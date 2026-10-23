@@ -58,6 +58,8 @@ public sealed record DocumentIngestionResult(
     KnowledgeDocument Document,
     IReadOnlyList<KnowledgeChunk> Chunks);
 
+public sealed record NoteMetadata(string Title, bool OptedOut);
+
 public sealed class MarkdownIngestor
 {
     private static readonly Regex WikiLinkRegex = new(@"\[\[([^\]|#]+?)(?:\|([^\]]+))?\]\]", RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -140,28 +142,73 @@ public sealed class MarkdownIngestor
 
     public SourceSnapshot ReadSnapshot(VaultFile file)
     {
-        var info = new FileInfo(file.FullPath);
-        var physical = info.ResolveLinkTarget(true) ?? info;
-        if (!IsInside(new DirectoryInfo(file.RootPath), physical))
-            throw new UnauthorizedAccessException("The resolved note path is outside the configured vault.");
-        info = new FileInfo(physical.FullName);
+        var resolvedPath = ResolveContainedFilePath(file);
+        var info = new FileInfo(resolvedPath);
         var modified = new DateTimeOffset(info.LastWriteTimeUtc, TimeSpan.Zero);
-        var bytes = File.ReadAllBytes(file.FullPath);
+        var bytes = File.ReadAllBytes(resolvedPath);
         return new SourceSnapshot(file, bytes, modified);
+    }
+
+    private static string ResolveContainedFilePath(VaultFile file)
+    {
+        var root = ResolveDirectory(new DirectoryInfo(Path.GetFullPath(file.RootPath)));
+        var relativeParts = file.RelativePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (relativeParts.Length == 0 || relativeParts.Any(part => part is "." or ".." ||
+            part.Contains(Path.DirectorySeparatorChar) || part.Contains(Path.AltDirectorySeparatorChar)))
+            throw new UnauthorizedAccessException("The note path is not a canonical vault-relative path.");
+
+        var currentPath = Path.GetFullPath(root.FullName);
+        for (var index = 0; index < relativeParts.Length; index++)
+        {
+            currentPath = Path.Combine(currentPath, relativeParts[index]);
+            FileSystemInfo component = index == relativeParts.Length - 1
+                ? new FileInfo(currentPath)
+                : new DirectoryInfo(currentPath);
+            var resolved = component.ResolveLinkTarget(true) ?? component;
+            if (!IsInside(root, resolved))
+                throw new UnauthorizedAccessException("The resolved note path is outside the configured vault.");
+            currentPath = Path.GetFullPath(resolved.FullName);
+        }
+
+        return currentPath;
     }
 
     public DocumentIngestionResult IngestDocument(SourceSnapshot snapshot, MarkdownIngestionOptions options)
     {
         var text = new UTF8Encoding(false, true).GetString(snapshot.Bytes);
         var parsed = Parse(text, snapshot.File.RelativePath, options.FrontmatterOptOutField);
-        var documentId = KnowledgeIdentity.DocumentId(options.VaultId, snapshot.File.RelativePath);
-        var document = new KnowledgeDocument(options.VaultId, documentId, snapshot.File.RelativePath, parsed.Title,
-            parsed.Tags, parsed.Aliases, parsed.Links, snapshot.FileHash, snapshot.ModifiedUtc);
+        var document = CreateDocument(snapshot, options, parsed);
         if (parsed.OptOut)
             return new DocumentIngestionResult(DocumentIngestionStatus.OptedOut, document, []);
         var chunks = Chunk(document, parsed, options);
         return new DocumentIngestionResult(chunks.Count == 0 ? DocumentIngestionStatus.Empty : DocumentIngestionStatus.Indexed,
             document, chunks);
+    }
+
+    public (KnowledgeDocument Document, bool OptedOut) ReadMetadata(SourceSnapshot snapshot,
+        MarkdownIngestionOptions options)
+    {
+        var text = new UTF8Encoding(false, true).GetString(snapshot.Bytes);
+        var parsed = Parse(text, snapshot.File.RelativePath, options.FrontmatterOptOutField);
+        return (CreateDocument(snapshot, options, parsed), parsed.OptOut);
+    }
+
+    public NoteMetadata ReadNoteMetadata(SourceSnapshot snapshot, MarkdownIngestionOptions options)
+    {
+        var text = new UTF8Encoding(false, true).GetString(snapshot.Bytes);
+        var (lines, start, frontmatter) = ReadFrontmatter(text);
+        var title = Values(frontmatter, "title").FirstOrDefault() ?? FindFirstH1(lines, start) ??
+            Path.GetFileNameWithoutExtension(snapshot.File.RelativePath);
+        var optedOut = frontmatter.TryGetValue(options.FrontmatterOptOutField, out var value) &&
+            string.Equals(value?.ToString(), "false", StringComparison.OrdinalIgnoreCase);
+        return new NoteMetadata(title, optedOut);
+    }
+
+    private static KnowledgeDocument CreateDocument(SourceSnapshot snapshot, MarkdownIngestionOptions options, ParsedNote parsed)
+    {
+        var documentId = KnowledgeIdentity.DocumentId(options.VaultId, snapshot.File.RelativePath);
+        return new KnowledgeDocument(options.VaultId, documentId, snapshot.File.RelativePath, parsed.Title,
+            parsed.Tags, parsed.Aliases, parsed.Links, snapshot.FileHash, snapshot.ModifiedUtc);
     }
 
     public IngestionResult ReadVault(MarkdownIngestionOptions options, CancellationToken cancellationToken = default)
@@ -230,17 +277,7 @@ public sealed class MarkdownIngestor
 
     private static ParsedNote Parse(string text, string relativePath, string optOutField)
     {
-        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
-        var frontmatter = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
-        var start = 0;
-        if (lines.Length > 0 && lines[0].Trim() == "---")
-        {
-            var end = Array.FindIndex(lines, 1, line => line.Trim() == "---");
-            if (end < 0) throw new FormatException("Unterminated frontmatter");
-            var yaml = string.Join('\n', lines.Skip(1).Take(end - 1));
-            ParseFrontmatter(yaml, frontmatter);
-            start = end + 1;
-        }
+        var (lines, start, frontmatter) = ReadFrontmatter(text);
         var tags = Values(frontmatter, "tags");
         var aliases = Values(frontmatter, "aliases");
         var optOut = frontmatter.TryGetValue(optOutField, out var value) && string.Equals(value?.ToString(), "false", StringComparison.OrdinalIgnoreCase);
@@ -250,7 +287,22 @@ public sealed class MarkdownIngestor
         return new ParsedNote(title, tags, aliases, links, optOut, sections);
     }
 
-    private static void ParseFrontmatter(string yaml, Dictionary<string, object?> target)
+    private static (string[] Lines, int BodyStart, Dictionary<string, object?> Frontmatter) ReadFrontmatter(string text)
+    {
+        var lines = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+        var frontmatter = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+        var start = 0;
+        if (lines.Length > 0 && lines[0].Trim() == "---")
+        {
+            var end = Array.FindIndex(lines, 1, line => line.Trim() == "---");
+            if (end < 0) throw new FormatException("Unterminated frontmatter");
+            ParseFrontmatterYaml(string.Join('\n', lines.Skip(1).Take(end - 1)), frontmatter);
+            start = end + 1;
+        }
+        return (lines, start, frontmatter);
+    }
+
+    private static void ParseFrontmatterYaml(string yaml, Dictionary<string, object?> target)
     {
         var stream = new YamlStream();
         using var reader = new StringReader(yaml);
@@ -274,6 +326,26 @@ public sealed class MarkdownIngestor
         true when value is string[] values => values.Select(x => x.Trim()).Where(x => x.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
         _ => []
     };
+
+    private static string? FindFirstH1(string[] lines, int start)
+    {
+        var inFence = false;
+        for (var index = start; index < lines.Length; index++)
+        {
+            var line = lines[index];
+            var trimmed = line.TrimStart();
+            if (trimmed.StartsWith("```", StringComparison.Ordinal) || trimmed.StartsWith("~~~", StringComparison.Ordinal))
+            {
+                inFence = !inFence;
+                continue;
+            }
+            if (inFence) continue;
+            if (TryHeading(line, out var level, out var heading) && level == 1) return heading;
+            if (index + 1 < lines.Length && !string.IsNullOrWhiteSpace(line) &&
+                Regex.IsMatch(lines[index + 1], @"^\s*=+\s*$")) return line.Trim();
+        }
+        return null;
+    }
 
     private static IReadOnlyList<Section> ParseSections(string[] lines, int start, out string? firstH1, out IReadOnlyList<WikiLink> links)
     {

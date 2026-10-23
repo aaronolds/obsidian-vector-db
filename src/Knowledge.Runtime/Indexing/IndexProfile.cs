@@ -2,10 +2,10 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Knowledge.Core;
 using Knowledge.Embeddings;
-using Knowledge.Indexer.Configuration;
+using Knowledge.Runtime.Configuration;
 using Knowledge.Markdown;
 
-namespace Knowledge.Indexer.Indexing;
+namespace Knowledge.Runtime.Indexing;
 
 public static class IndexProfile
 {

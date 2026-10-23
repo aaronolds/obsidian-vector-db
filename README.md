@@ -4,14 +4,15 @@ A local-first .NET 10 knowledge platform with authoritative Markdown and a
 rebuildable Qdrant index. The architecture in `docs/` and decisions in `docs/adr/`
 govern implementation.
 
-**Milestone 6 evaluator implemented; real-vault baseline pending:** The executable
+**Milestones 6 and 7 implemented; Milestone 6 real-vault baseline and Milestone 7 live Qdrant/ONNX acceptance pending:** The executable
 loads and validates configuration, reports vault and vault-scoped index status,
 scans and chunks Markdown, generates local BGE-small embeddings through ONNX
 Runtime, incrementally indexes documents, rebuilds the configured Qdrant
 collection explicitly, supports dense CLI search, and offers local dense Hit@5
-evaluation. Watching and MCP hosting remain deferred. The offline test suites pass;
-the live Qdrant/ONNX acceptance
-integration test and two-pass sample-vault CLI check pass. After fixing a parser
+evaluation. A local stdio MCP server exposes read-only `search_knowledge` and
+`get_note` tools. Watching remains deferred. The offline test suites pass.
+Milestone 3's live Qdrant/ONNX acceptance checks and two-pass sample-vault CLI
+check pass. After fixing a parser
 bug involving fenced YAML examples, the real-vault check passed both runs with
 parser profile v2: 408 notes scanned, 402 indexed, 6 empty, and 3,692 chunks
 stored. The second pass left all 402 documents unchanged, wrote no chunks, and
@@ -233,6 +234,48 @@ diagnostics go to stderr and contain operational metadata only; queries and note
 content are never logged or repeated in errors. Search reports the last indexed
 state, so run `index` after notes are changed, deleted, excluded, or opted out.
 
+## Use the MCP server
+
+Build the server and configure your MCP client to start its DLL with an absolute
+configuration path. For example:
+
+```sh
+dotnet build src/Knowledge.Mcp/Knowledge.Mcp.csproj --configuration Release
+```
+
+```json
+{
+  "mcpServers": {
+    "obsidian-knowledge": {
+      "command": "dotnet",
+      "args": [
+        "/absolute/path/to/src/Knowledge.Mcp/bin/Release/net10.0/Knowledge.Mcp.dll",
+        "--config",
+        "/absolute/path/to/knowledge.local.yaml"
+      ]
+    }
+  }
+}
+```
+
+The server uses local stdio and writes only MCP protocol messages to stdout.
+`search_knowledge` accepts a query and the same optional limit, path prefix, and
+exact tags as CLI search. It returns ranked Markdown chunks with document/chunk
+IDs, path, title, heading path, and score. It requires the pinned local model,
+tokenizer, and an existing compatible Qdrant collection. It never indexes or
+repairs the collection.
+
+`get_note` accepts exactly one canonical vault-relative Markdown path or
+document ID. It reads current eligible Markdown from the vault, including
+frontmatter, and enforces configured include/exclude rules, `ai-index: false`,
+and vault containment for symbolic links. It does not require Qdrant or model
+assets. Both tools are read-only; returned note text is untrusted data. Tool
+errors and application diagnostics omit queries and note contents.
+
+The server uses the same retrieval service and index-profile fingerprint as the
+CLI. The live search-equivalence acceptance check requires pinned model assets
+and local Qdrant; see the [Milestone 7 plan](docs/17-milestone-7-implementation-plan.md).
+
 ## Evaluate dense retrieval
 
 The `evaluate` command checks a local benchmark against the existing index. The
@@ -345,8 +388,15 @@ dotnet test Knowledge.sln --no-build --no-restore
 ```
 
 `Knowledge.Indexer.Tests` and `Knowledge.Embeddings.Tests` require no model assets.
+`Knowledge.Mcp.Tests` also runs without model assets or Qdrant.
 The real-model integration suite requires the pinned ONNX file installed with the
 setup script; no Docker service is required for embeddings.
+The MCP live acceptance suite is excluded from the solution and also requires
+running local Qdrant:
+
+```sh
+dotnet test tests/Knowledge.Mcp.IntegrationTests/Knowledge.Mcp.IntegrationTests.csproj
+```
 
 ## GitHub automation and contributing
 
@@ -369,9 +419,11 @@ adding the files alone does not enable automatic reviews or branch protection.
   wikilink extraction, and structure-aware deterministic chunking.
 - `Knowledge.Embeddings`: pinned BERT WordPiece tokenizer and local ONNX inference.
 - `Knowledge.Qdrant`: gRPC health probe and index storage adapter; references Core.
-- `Knowledge.Indexer`: executable named `knowledge`; owns configuration and CLI.
-- `Knowledge.Mcp`: library shell; no MCP host or SDK in this milestone.
+- `Knowledge.Runtime`: shared configuration, index profile, and read-only search composition.
+- `Knowledge.Indexer`: executable named `knowledge`; owns indexing orchestration and CLI.
+- `Knowledge.Mcp`: local stdio MCP executable; owns the `search_knowledge` and `get_note` tool adapters.
 - `tests/Knowledge.Indexer.Tests`: configuration and CLI tests.
+- `tests/Knowledge.Mcp.Tests`: asset-free MCP and current-note tests.
 
 Infrastructure libraries reference Core, which remains independent of tokenizer,
 ONNX, Markdown parser, and Qdrant types.
