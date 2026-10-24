@@ -1,9 +1,13 @@
 # Milestone 6: Retrieval benchmark
 
-Implementation status: evaluator and tests implemented on 2026-10-23. The
-real-vault benchmark and reviewed dense baseline remain pending because this
-checkout has no configured real-vault dataset or ONNX model weights. Planning
-date: 2026-10-22; implementation date: 2026-10-23.
+Implementation status: evaluator and tests implemented on 2026-10-23. Real-vault
+acceptance closed on 2026-10-24: pinned assets were verified, the registered
+vault corpus was indexed, and the approved 24-question benchmark was measured
+and reviewed by the vault owner. Milestone 6 acceptance is complete.
+Planning date: 2026-10-22; implementation date: 2026-10-23.
+
+The acceptance closure plan and dated evidence are in section 9. The recorded
+gates and outcomes define Milestone 6 completion.
 
 ## 1. Outcome and scope
 
@@ -30,10 +34,11 @@ evidence for later work, not authorization to implement that work here.
 - `Knowledge.Core` already defines `IKnowledgeRetriever`, search request/result
   records, identities, and schema constants. No benchmark-specific Core contract
   is needed; keep Core independent of infrastructure.
-- `KnowledgeCli.RunSearchAsync` constructs local ONNX/query embedding services
-  and `QdrantKnowledgeRetriever` using `IndexProfile.Create`. Reuse this
-  composition through a narrow shared helper if necessary. Do not evaluate by
-  parsing rendered `knowledge search` output or duplicating the search algorithm.
+- `KnowledgeCli.RunSearchAsync` and evaluation use
+  `Knowledge.Runtime.KnowledgeSearchSession` for local ONNX/query embedding and
+  Qdrant composition, with the profile from `IndexProfile.Create`. Preserve this
+  shared composition. Do not evaluate by parsing rendered `knowledge search`
+  output or duplicating the search algorithm.
 - `QdrantKnowledgeRetriever.SearchAsync` validates the collection/profile,
   scopes every search to the configured vault, and returns ranked chunks with
   provenance. It does not create or repair collections. Preserve these gates.
@@ -42,8 +47,8 @@ evidence for later work, not authorization to implement that work here.
   for asset-free CLI tests; avoid a new project or dependency framework.
 - Extend `tests/Knowledge.Indexer.Tests/` for evaluator/CLI tests and the existing
   explicit `Knowledge.Indexing.IntegrationTests` suite for live wiring checks.
-- `eval/README.md` is currently a placeholder. It will document dataset
-  authoring, local invocation, report format, baseline evidence, and privacy.
+- `eval/README.md` documents dataset authoring, local invocation, and privacy;
+  `eval/dense-baseline.md` records the measured and owner-reviewed baseline.
 
 ## 3. Benchmark dataset and ground truth
 
@@ -245,8 +250,10 @@ whether passages answer the question, heading context is sufficient, chunks are
 too broad/narrow, duplicates dominate, and code-heavy material retrieves well.
 Separate bad labels or stale/incomplete indexing from dense semantic weaknesses;
 record any corrections as a new benchmark/run rather than overwriting history.
-If below 85%, document the failure analysis before recommending later hybrid or
-other architecture work. Do not implement the recommendation in Milestone 6.
+The vault owner confirmed the review on 2026-10-24. The baseline result is above
+85%; exact-identifier and acronym questions scored 7/7 combined. The review found
+no failure in that small identifier sample, while retaining the small sample size
+as a limitation. Do not implement the later sparse/hybrid comparison in M6.
 
 Milestone 6 is complete only when the evaluator is tested, at least 20 genuine
 real-vault questions are evaluated, complete dense metrics/configuration are
@@ -290,7 +297,255 @@ Verification on 2026-10-23:
   vault. No real user-vault configuration or privately verified benchmark was
   supplied, so no genuine real-vault baseline or manual quality review is claimed.
 
-The evaluator implementation is complete; Milestone 6 acceptance remains pending
-until the user runs it against a verified real vault with pinned ONNX assets and
-local Qdrant, then records the dense results and human review in
-`eval/dense-baseline.md`.
+At the 2026-10-23 verification, real-vault evaluation had not yet run. The
+2026-10-24 evidence below records the completed evaluation and owner review.
+
+Additional verification on 2026-10-24:
+
+- The full solution build succeeded with zero warnings and errors. The solution
+  unit suites passed 132 Indexer, 8 Embeddings, and 21 MCP tests.
+- The pinned ONNX integration suite passed 6/6; the local Qdrant/ONNX indexing
+  integration suite passed 3/3, including the complete CLI evaluation path,
+  private-content checks, unchanged indexed metadata, and report preservation
+  after a setup failure.
+- `scripts/setup-bge-model.sh` verified the pinned model digest. Local Qdrant
+  v1.19.2 was already running; all live tests used unique disposable collections
+  and cleaned them up.
+- The registered open vault indexed successfully into the dedicated local
+  acceptance collection: 410 Markdown files scanned, 404 indexed, 6 empty,
+  3,707 chunks written, and zero failures. The unchanged second pass reported
+  404 unchanged documents, zero chunk writes, and zero embedding calls.
+- The user approved benchmark v1 expected paths before results were examined.
+  Its SHA-256 is `fb5b338df3af94d8f1c2bcfdac55029cc2f31bdea61450789e5d152f83c908a5`.
+  The run returned 22/24 Hit@5 (91.7%). Both misses and one successful result
+  from each category were reviewed; the vault owner confirmed the relevance
+  review on 2026-10-24. The private notes remain in ignored `eval/local/review-v1.md`.
+
+## 9. Milestone 6 acceptance closure plan
+
+### 9.1 Starting point and scope
+
+Repository review on 2026-10-24, at revision `a456098`, confirmed:
+
+- Dataset loading, source eligibility validation, fixed-K scoring, category
+  aggregation, report metadata, atomic output, and the CLI are implemented.
+- Unit tests cover core scoring and validation, including rank 5 versus rank 6,
+  the 17/20 target boundary, fixed limit 5, content omission, and cancellation
+  before report writing. The section 6 coverage audit added direct checks for
+  alternative labels, empty/short results, exact path casing/folders, malformed
+  results, terms, category denominators, maxLimit preflight, missing assets,
+  retrieval failure privacy, and report-write failure preservation.
+- The Qdrant/ONNX integration suite now exercises the complete real-runtime
+  `knowledge evaluate` CLI path against a synthetic vault and disposable collection.
+- No `knowledge.local.yaml`, `eval/local/` dataset/report, or pinned ONNX weights
+  were present at the start of this execution. The private config, verified weights, indexed collection, and benchmark were
+  then created. The user approved benchmark labels, and the measured baseline
+  and owner relevance review are complete.
+
+Follow documents 01–08 and the accepted ADRs. Keep BGE-small-en-v1.5, local
+inference, 384-dimensional cosine vectors, payload schema 1, embedding schema 2,
+query formatting, chunking, and the current index profile unchanged. Core stays
+independent of infrastructure; evaluation stays in `Knowledge.Indexer` and
+reuses `Knowledge.Runtime` composition and the existing retriever.
+
+Do not expand MCP, implement watching, tune retrieval, add hybrid/sparse search,
+reranking, graph expansion, deduplication, thresholds, or new metrics. Existing
+Milestone 7 work is outside this acceptance effort. If an implementation issue
+makes an accepted decision infeasible, record the failing case, evidence,
+affected requirement/ADR, and proposed resolution in this document before
+changing the design. A result below 85% is not architectural infeasibility.
+
+### 9.2 Phase A: establish the evaluation inputs
+
+Execution needs the actual vault root and stable vault ID, intended include and
+exclude rules, and an available reviewer familiar with the notes. Obtain these
+inputs before reading a real vault or inventing ground truth; the repository
+docs and synthetic sample vault are not substitutes. Automated test work in
+Phase B can proceed independently of these inputs.
+
+1. Create ignored `knowledge.local.yaml` using the existing sample configuration
+   and documented file-relative path rules. Select a new dedicated disposable
+   collection, such as `obsidian-knowledge-m6-acceptance-<run-id>`, rather than an
+   existing user collection. Keep logging content and queries disabled.
+2. Confirm that `knowledge.local.yaml` and every private artifact under
+   `eval/local/` are ignored before writing private content. Record machine paths,
+   source manifests, query text, detailed results, and review notes only locally.
+3. Install or locate the pinned ONNX weights using the existing explicit setup
+   procedure, `./scripts/setup-bge-model.sh`, and verify model/tokenizer digests.
+   Acquisition is a setup step; add no runtime download or remote fallback.
+4. Establish a quiet evaluation window with no source edits, sync changes, or
+   concurrent index writers. Use the same vault snapshot, configuration,
+   benchmark, and software revision throughout the acceptance run.
+   Record the evaluated Git revision and working-tree state; commit code fixes
+   before measurement or retain the exact patch and its hash with the private
+   run evidence so the evaluated software can be reproduced.
+
+Deliverable: a usable private configuration, verified assets, selected collection,
+and identified dataset/review owner. Missing inputs leave real-vault acceptance
+pending; record the exact missing input rather than claiming synthetic acceptance.
+
+### 9.3 Phase B: verify and complete the evaluator implementation
+
+Audit section 6 against the implementation and existing tests. Add focused tests
+for uncovered behavioral requirements, and fix only demonstrated Milestone 6
+defects. Do not rewrite the evaluator or add a new framework.
+
+| Area | Work to verify or complete |
+|---|---|
+| Dataset preflight | Malformed/null/unknown/duplicate fields; 20–50 entries; unique IDs; canonical path casing; missing, unreadable, excluded, opted-out, and empty sources; an invalid late query rejects the whole dataset before retrieval |
+| Scoring | Rank 1/5/6; empty and short results; duplicate chunks consuming slots; alternative expected paths; case and folder distinctions; category denominators; terms never changing the hit outcome |
+| CLI safety | Required/repeated/unknown options; config/environment/path resolution; `maxLimit < 5`; dataset/config/vault output protection; no filtering; fixed K despite a different default limit |
+| Failure integrity | Missing/incompatible collection, asset failure, Qdrant/inference failure, malformed results, mid-run cancellation, report-write failure, and source changes abort without replacing a prior complete report |
+| Privacy and reporting | Query, note, and server-error sentinels absent from stdout/stderr/reports; complete provenance/version/configuration metadata; deterministic category order and invariant numeric output |
+| Read-only evaluation | No collection, payload-index, or point mutation; unchanged sources and indexed state before/after evaluation |
+
+Extend `tests/Knowledge.Indexing.IntegrationTests/LocalIndexingTests.cs` with a
+focused full-CLI evaluation case using pinned assets, a temporary synthetic vault,
+and a unique disposable collection. Invoke the real CLI without the injected
+retriever factory; exercise JSON loading, runtime composition, Qdrant status,
+retrieval, stability checking, and JSON report writing together. Assert a complete
+report, valid ranked provenance, vault isolation, content omission, and unchanged
+source/index state. Include an operational failure that preserves existing
+report bytes. Keep semantic quality targets out of this synthetic wiring test.
+
+Run from the repository root after any necessary changes:
+
+```sh
+dotnet restore Knowledge.sln
+dotnet build Knowledge.sln --no-restore
+dotnet test Knowledge.sln --no-build --no-restore
+dotnet test tests/Knowledge.Embeddings.IntegrationTests/Knowledge.Embeddings.IntegrationTests.csproj
+docker compose -f docker/docker-compose.yml up -d
+dotnet test tests/Knowledge.Indexing.IntegrationTests/Knowledge.Indexing.IntegrationTests.csproj
+```
+
+Deliverable: passing asset-free tests and live embedding/Qdrant/CLI evidence,
+with versions, test counts, exit codes, and disposable-test cleanup recorded.
+Do not substitute a successful integration build for a live test result.
+
+Verification on 2026-10-24: the section 6 audit and follow-up tests passed. The
+full solution built with zero warnings/errors and its unit suites passed 132
+Indexer, 8 Embeddings, and 21 MCP tests. The pinned ONNX suite passed 6/6 and
+the live Qdrant indexing/evaluation suite passed 3/3. The standard and local-cache
+solution restore attempts stalled without output and were stopped; the verified
+build and test runs used existing restored assets.
+
+### 9.4 Phase C: author and freeze genuine ground truth
+
+1. Read eligible real-vault sources and author 20–50 useful questions; aim for 24.
+   Cover conceptual, paraphrased, acronym, exact-identifier, architecture-decision,
+   implementation-detail, multiple-plausible-note, and intentionally difficult
+   cases. Include code-heavy sources. Assign one primary category per question;
+   coverage matters more than equal category sizes.
+2. Verify each expected path against authoritative Markdown and record why its
+   content answers the question, plus acceptable alternative paths. Preserve
+   discovered path casing and eligibility. A reviewer familiar with the vault
+   checks the questions and labels before seeing retrieval results.
+3. Save `eval/local/retrieval-benchmark-v1.json` in the existing JSON format.
+   Save private label rationale and coverage notes separately; do not add fields
+   to the strict benchmark schema. Use metadata-safe IDs/category slugs.
+4. Freeze the dataset and record its SHA-256 and version before inspecting any
+   benchmark retrieval outcomes. Never revise labels merely to improve Hit@5.
+   Genuine label corrections require a new dataset version/hash and a new run,
+   preserving the original artifacts and explanation.
+
+Deliverable: independently verified ground truth and an immutable benchmark
+version. Repeated synthetic questions do not meet this gate.
+
+### 9.5 Phase D: index and measure the dense baseline
+
+After Phases A–C pass, start/confirm local Qdrant with the checked-in Compose
+configuration. Keep its existing loopback-only gRPC binding. Run the real-vault
+commands from the repository root, using the dedicated collection in the private
+configuration:
+
+```sh
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj --no-build -- index --config knowledge.local.yaml
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj --no-build -- index --config knowledge.local.yaml
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj --no-build -- status --config knowledge.local.yaml
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj --no-build -- evaluate --benchmark eval/local/retrieval-benchmark-v1.json --output eval/local/runs/baseline-v1/dense-baseline.json --config knowledge.local.yaml
+dotnet run --project src/Knowledge.Indexer/Knowledge.Indexer.csproj --no-build -- status --config knowledge.local.yaml
+```
+
+Require complete successful indexing. The second unchanged index pass must
+report zero embedding calls and zero chunk writes. Do not run evaluation against
+a failed or partial indexing run. Use `index` against the fresh collection;
+collection-wide `rebuild` of an existing collection is unnecessary here.
+
+Before and after evaluation, capture and compare source-manifest hashes,
+vault-scoped document/chunk counts, and sorted indexed-metadata fingerprints
+including point IDs, file hashes, chunk ordinals/counts, schema, and profile.
+Use existing read-only store methods or a small local acceptance helper;
+do not add a public command or persistent catalog solely for this comparison.
+Keep detailed metadata private and never dump vectors or note bodies into logs.
+Counts alone do not demonstrate unchanged index state. The CLI already checks
+source stability, but does not itself compare index state after the run.
+
+Require exit code 0 and a complete JSON report with the frozen benchmark/source
+hashes, exact K=5, dense mode, model/asset digests, schema/profile, runtime/server
+versions, index counts, per-category totals, and per-query outcomes. Check that
+category totals reconcile with overall totals. Preserve raw reports under
+run-specific paths instead of overwriting prior runs.
+
+An exit code of 0 can legitimately accompany `targetMet: false`. Operational
+failures, incompatible profiles, source/index changes, or unverified labels
+invalidate acceptance evidence; resolve the cause and start a new recorded run.
+Never count those failures as retrieval misses or combine partial runs.
+
+Deliverable: a reproducible real-vault dense report and source/index stability
+evidence. Report the measured ratio without tuning this baseline.
+
+Execution on 2026-10-24 used benchmark v1 (SHA-256
+`fb5b338df3af94d8f1c2bcfdac55029cc2f31bdea61450789e5d152f83c908a5`) at revision
+`a456098b3ca006d48f2102813948d0d98107de10`. Both indexing passes succeeded; the
+second pass wrote zero chunks and made zero embedding calls. The 24-question run
+exited 0 with 22/24 Hit@5 (91.7%), `targetMet: true`. It recorded 404 documents,
+3,707 chunks, BGE-small-en-v1.5 pinned digests, .NET 10.0.13, ONNX Runtime
+1.31.0.0, and Qdrant 1.19.2. Both the source snapshot hash
+`0f26cf56b523526fadca9c7a0436f4c2f6c96e96c5e24bf01e21ab7cf5d796e5` and indexed
+metadata fingerprint `de3e0e02771fabd170de7ad91a566ba356ced51e778daab11358e75576b5c57a`
+matched before and after evaluation. The configured parent root indexed 19
+nested `Personal/` documents / 69 chunks. Aggregate results and the recommendation
+are recorded in `eval/dense-baseline.md`; detailed review remains ignored in
+`eval/local/`.
+
+### 9.6 Phase E: review relevance and record closure
+
+Inspect every miss and representative successes across categories against the
+same frozen source/index state. Keep returned Markdown in deliberate local
+inspection output, separate from application logs. For each reviewed safe query
+ID record: whether the passage answers the question, section provenance and
+heading context, chunk coherence/size, duplicate-result dominance, and code-heavy
+retrieval behavior. Distinguish label errors, stale/incomplete indexing, and dense
+retrieval limitations. Do not silently remove difficult questions.
+
+Populate `eval/dense-baseline.md` with a sanitized aggregate review: benchmark
+version/hash, source snapshot hash, evaluated Git revision, model/asset and index
+configuration, runtime/server versions, counts, overall and category Hit@5,
+`targetMet`, reviewed safe IDs, failure patterns, and a recommended future
+experiment or a reason to keep dense retrieval. Keep private examples and detailed
+per-query artifacts under `eval/local/`. Recommend later work without implementing
+it in Milestone 6. A sub-85% result can close this milestone with honest analysis;
+it cannot justify claiming that the quality target was met.
+
+| Closure gate | Required evidence |
+|---|---|
+| Evaluator correctness | Section 6 coverage audit, passing solution tests, live model tests, and full-CLI Qdrant/ONNX check |
+| AC-006 semantic search | A reviewed successful natural-language/paraphrased query returns a passage that answers the question |
+| AC-007 identifier baseline | Exact-identifier/acronym cases are measured and their limitations documented |
+| AC-008 provenance | Reviewed results identify the correct note and section and preserve requested Markdown |
+| AC-010 benchmark | At least 20 verified real-vault questions; complete exact-path top-five metrics overall and by category |
+| Reproducibility and privacy | Frozen benchmark/source hashes, model/profile/version metadata, successful indexing, unchanged sources/index, private artifacts excluded from Git |
+| Human review | All misses and category-spanning successes reviewed; findings and recommendation recorded |
+
+All closure gates passed on 2026-10-24. Milestone 6 is marked complete in the
+introduction, roadmap, `README.md`, `eval/README.md`, and `AGENTS.md`. Milestone 7
+acceptance remains separate and pending.
+
+After the owner confirmed review, the dedicated disposable acceptance collection
+`obsidian-knowledge-m6-acceptance-20261024` was removed and verified absent. The
+private benchmark, raw report, and review notes remain ignored under
+`eval/local/`; the temporary snapshot helper and its build output were removed.
+The local configuration and downloaded pinned model assets remain available for
+future evaluation. No user collection, shared Qdrant volume, or Markdown note was
+changed.

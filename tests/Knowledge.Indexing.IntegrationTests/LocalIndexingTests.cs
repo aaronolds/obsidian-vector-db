@@ -1,6 +1,8 @@
+using System.Text.Json;
 using Knowledge.Core;
 using Knowledge.Embeddings;
-using Knowledge.Indexer.Configuration;
+using Knowledge.Runtime.Configuration;
+using Knowledge.Runtime.Indexing;
 using Knowledge.Indexer.Indexing;
 using Knowledge.Indexer.Evaluation;
 using Knowledge.Markdown;
@@ -12,6 +14,129 @@ namespace Knowledge.Indexing.IntegrationTests;
 
 public sealed class LocalIndexingTests
 {
+    [Fact]
+    public async Task Knowledge_cli_evaluate_runs_read_only_against_local_qdrant_and_pinned_onnx()
+    {
+        var root = FindRepositoryRoot();
+        var model = Path.Combine(root, "models", "bge-small-en-v1.5", "onnx", "model.onnx");
+        var vocabulary = Path.Combine(root, "models", "bge-small-en-v1.5", "vocab.txt");
+        if (!File.Exists(model) || !File.Exists(vocabulary))
+            throw new XunitException("Install pinned model assets with scripts/setup-bge-model.sh before running the indexing integration suite.");
+
+        using var vault = new IntegrationVault();
+        vault.Write("Architecture.md", "# Local indexing\n\nPRIVATE_NOTE_SENTINEL: The local indexer stores markdown passages as vector points.");
+        var collection = "knowledge-evaluate-test-" + Guid.NewGuid().ToString("N")[..12];
+        using var client = new QdrantClient("localhost", 6334, grpcTimeout: TimeSpan.FromSeconds(10));
+        try { await client.HealthAsync(); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new XunitException("Start local Qdrant with docker compose -f docker/docker-compose.yml up -d before running the indexing integration suite.");
+        }
+
+        using var config = new TemporaryFile(".yaml");
+        using var benchmark = new TemporaryFile(".json");
+        using var report = new TemporaryFile(".json");
+        const string querySentinel = "PRIVATE_QUERY_SENTINEL";
+        await File.WriteAllTextAsync(config.Path,
+            $"""
+             vault:
+               id: integration
+               path: "{vault.Path}"
+             index:
+               include: ["**/*.md"]
+               exclude: [".obsidian/**"]
+               frontmatterOptOutField: ai-index
+             chunking:
+               targetTokens: 300
+               softMaxTokens: 400
+               overlapTokens: 40
+               overlapOnlyWhenSplit: true
+             embedding:
+               provider: onnx
+               model: BAAI/bge-small-en-v1.5
+               dimensions: 384
+               modelPath: "{model}"
+               tokenizerPath: "{vocabulary}"
+             qdrant:
+               host: localhost
+               port: 6334
+               collection: {collection}
+             retrieval:
+               defaultLimit: 2
+               maxLimit: 50
+               mode: dense
+             logging:
+               level: Warning
+               logContent: false
+               logQueries: false
+             """);
+        var entries = Enumerable.Range(0, 20).Select(index => new RetrievalBenchmarkEntry(
+            $"integration-{index}", $"{querySentinel} How does local indexing store markdown passages?",
+            ["Architecture.md"], "semantic")).ToArray();
+        var benchmarkJson = entries.Select(entry => new
+        {
+            id = entry.Id,
+            query = entry.Query,
+            expectedPaths = entry.ExpectedPaths,
+            category = entry.Category
+        });
+        await File.WriteAllTextAsync(benchmark.Path, JsonSerializer.Serialize(benchmarkJson));
+        try
+        {
+            using var indexOutput = new StringWriter();
+            using var indexError = new StringWriter();
+            var indexCode = await Knowledge.Indexer.KnowledgeCli.RunAsync(["index", "--config", config.Path], indexOutput, indexError);
+            Assert.True(indexCode == 0, $"Index CLI failed with exit code {indexCode}: {indexError}");
+
+            var statusStore = new QdrantKnowledgeIndexStore(client, collection);
+            var statusBefore = await statusStore.GetStatusAsync("integration");
+            var metadataBefore = await statusStore.GetIndexedChunksAsync("integration");
+            Assert.Equal(1, statusBefore.IndexedDocuments);
+            Assert.NotEmpty(metadataBefore);
+
+            using var output = new StringWriter();
+            using var error = new StringWriter();
+            var code = await Knowledge.Indexer.KnowledgeCli.RunAsync([
+                "evaluate", "--benchmark", benchmark.Path, "--output", report.Path, "--config", config.Path
+            ], output, error);
+
+            Assert.True(code == 0, $"Evaluate CLI failed with exit code {code}: {error}");
+            Assert.DoesNotContain(querySentinel, output.ToString() + error.ToString());
+            Assert.DoesNotContain("PRIVATE_NOTE_SENTINEL", output.ToString() + error.ToString());
+            using (var reportJson = JsonDocument.Parse(await File.ReadAllTextAsync(report.Path)))
+            {
+                var reportRoot = reportJson.RootElement;
+                Assert.Equal(20, reportRoot.GetProperty("queryCount").GetInt32());
+                Assert.Equal(5, reportRoot.GetProperty("k").GetInt32());
+                Assert.Equal("dense", reportRoot.GetProperty("retrievalMode").GetString());
+                Assert.Equal("Architecture.md",
+                    reportRoot.GetProperty("results")[0].GetProperty("results")[0].GetProperty("path").GetString());
+                Assert.DoesNotContain(querySentinel, reportRoot.ToString());
+                Assert.DoesNotContain("PRIVATE_NOTE_SENTINEL", reportRoot.ToString());
+            }
+
+            Assert.Equal(statusBefore, await statusStore.GetStatusAsync("integration"));
+            Assert.Equal(metadataBefore, await statusStore.GetIndexedChunksAsync("integration"));
+
+            var previousReport = await File.ReadAllBytesAsync(report.Path);
+            using var invalidBenchmark = new TemporaryFile(".json");
+            await File.WriteAllTextAsync(invalidBenchmark.Path, "[invalid");
+            using var failureOutput = new StringWriter();
+            using var failureError = new StringWriter();
+            var failureCode = await Knowledge.Indexer.KnowledgeCli.RunAsync([
+                "evaluate", "--benchmark", invalidBenchmark.Path, "--output", report.Path, "--config", config.Path
+            ], failureOutput, failureError);
+            Assert.Equal(2, failureCode);
+            Assert.Equal(previousReport, await File.ReadAllBytesAsync(report.Path));
+            Assert.Equal(statusBefore, await statusStore.GetStatusAsync("integration"));
+            Assert.Equal(metadataBefore, await statusStore.GetIndexedChunksAsync("integration"));
+        }
+        finally
+        {
+            if (await client.CollectionExistsAsync(collection)) await client.DeleteCollectionAsync(collection);
+        }
+    }
+
     [Fact]
     public async Task Qdrant_status_is_read_only_vault_scoped_paginated_and_fails_closed_on_bad_identity()
     {
@@ -246,5 +371,15 @@ public sealed class LocalIndexingTests
         public IntegrationVault() => Directory.CreateDirectory(Path);
         public void Write(string path, string content) => File.WriteAllText(System.IO.Path.Combine(Path, path), content);
         public void Dispose() => Directory.Delete(Path, true);
+    }
+
+    private sealed class TemporaryFile(string extension) : IDisposable
+    {
+        public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+            $"knowledge-evaluate-{Guid.NewGuid():N}{extension}");
+        public void Dispose()
+        {
+            if (File.Exists(Path)) File.Delete(Path);
+        }
     }
 }

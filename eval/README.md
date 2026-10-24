@@ -1,7 +1,8 @@
 # Evaluation
 
-Milestone 6 provides a local dense retrieval evaluator. The real-vault dataset
-and reviewed baseline are still required before the milestone is complete.
+Milestone 6 provides a local dense retrieval evaluator. The private real-vault
+benchmark and owner-reviewed measured baseline are recorded in
+[dense-baseline.md](dense-baseline.md). Milestone 6 acceptance is complete.
 
 Create a JSON array with 20–50 entries, each containing a short `id`, `query`,
 one primary `category`, and one or more exact vault-relative `expectedPaths`.
@@ -23,10 +24,14 @@ queries and paths may reveal private vault content. Reports omit query text and
 note bodies, but contain relative paths and note/chunk identities. Do not commit
 private query rows or detailed reports. Commit a reviewed aggregate summary only
 when it is safe to publish. Do not treat a synthetic-vault run as the real-vault
-baseline. Review misses and representative successes manually; the 85% target is
-advisory and a measured miss is still a successful evaluation run.
+baseline. The measured baseline is summarized in
+[dense-baseline.md](dense-baseline.md). The owner-reviewed misses and category-spanning successes are documented in the
+private review artifact. The 85% target is advisory; a measured miss is still a
+successful evaluation run.
 
 The [Milestone 6 implementation plan](../docs/16-milestone-6-implementation-plan.md)
 defines validation, scoring, report fields, privacy, and completion evidence.
 The authoritative metric requirements are in the
 [retrieval evaluation plan](../docs/04-retrieval-evaluation-plan.md).
+For the execution sequence and evidence required to close acceptance, follow the
+[Milestone 6 acceptance closure plan](../docs/16-milestone-6-implementation-plan.md#9-milestone-6-acceptance-closure-plan).
