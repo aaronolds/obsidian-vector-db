@@ -41,7 +41,7 @@ public sealed class LocalIndexingTests
             $"""
              vault:
                id: integration
-               path: "{vault.Path}"
+               path: {JsonSerializer.Serialize(vault.Path)}
              index:
                include: ["**/*.md"]
                exclude: [".obsidian/**"]
@@ -55,8 +55,8 @@ public sealed class LocalIndexingTests
                provider: onnx
                model: BAAI/bge-small-en-v1.5
                dimensions: 384
-               modelPath: "{model}"
-               tokenizerPath: "{vocabulary}"
+               modelPath: {JsonSerializer.Serialize(model)}
+               tokenizerPath: {JsonSerializer.Serialize(vocabulary)}
              qdrant:
                host: localhost
                port: 6334

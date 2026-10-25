@@ -89,10 +89,21 @@ public sealed class RetrievalBenchmarkTests
         Assert.Throws<RetrievalBenchmarkException>(() => RetrievalBenchmarkLoader.Load(missing.Path));
 
         entries[0]["category"] = null;
+        using var nullCategory = new TemporaryJson(JsonSerializer.Serialize(entries));
+        Assert.Contains("category field",
+            Assert.Throws<RetrievalBenchmarkException>(() => RetrievalBenchmarkLoader.Load(nullCategory.Path)).Message);
+
+        entries[0]["category"] = "semantic";
         entries[1]["query"] = " ";
+        using var blankQuery = new TemporaryJson(JsonSerializer.Serialize(entries));
+        Assert.Contains("query field",
+            Assert.Throws<RetrievalBenchmarkException>(() => RetrievalBenchmarkLoader.Load(blankQuery.Path)).Message);
+
+        entries[1]["query"] = "query text 1";
         entries[2]["expectedPaths"] = new[] { "" };
-        using var nullOrBlank = new TemporaryJson(JsonSerializer.Serialize(entries));
-        Assert.Throws<RetrievalBenchmarkException>(() => RetrievalBenchmarkLoader.Load(nullOrBlank.Path));
+        using var blankExpectedPath = new TemporaryJson(JsonSerializer.Serialize(entries));
+        Assert.Contains("expectedPaths item",
+            Assert.Throws<RetrievalBenchmarkException>(() => RetrievalBenchmarkLoader.Load(blankExpectedPath.Path)).Message);
 
         object?[] withNull = Enumerable.Range(0, 20).Select(i => (object?)new
         {
@@ -422,9 +433,12 @@ public sealed class RetrievalBenchmarkTests
         using var vault = new TemporaryVault();
         for (var i = 0; i < 20; i++) vault.Write($"Note{i}.md", $"# Note {i}\nBody.");
         var vocab = Path.Combine(FindRepositoryRoot(), "models", "bge-small-en-v1.5", "vocab.txt");
-        using var configuration = new TemporaryConfiguration(
-            $"vault: {{id: primary, path: '{vault.Path}'}}\nindex: {{include: ['**/*.md']}}\nembedding: {{tokenizerPath: '{vocab}'}}\nretrieval: {{maxLimit: 4}}\n");
+        using var invalidLimitConfiguration = new TemporaryConfiguration(
+            $"vault: {{id: primary, path: '{vault.Path}'}}\nindex: {{include: ['**/*.md']}}\nembedding: {{tokenizerPath: '{vocab}'}}\nretrieval: {{defaultLimit: 4, maxLimit: 4}}\n");
+        using var validConfiguration = new TemporaryConfiguration(
+            $"vault: {{id: primary, path: '{vault.Path}'}}\nindex: {{include: ['**/*.md']}}\nembedding: {{tokenizerPath: '{vocab}'}}\n");
         using var benchmarkFile = new TemporaryJson(BenchmarkJson(20));
+        var benchmarkBytes = File.ReadAllBytes(benchmarkFile.Path);
         using var reportFile = new TemporaryJson("");
         File.Delete(reportFile.Path);
         using var output = new StringWriter();
@@ -437,16 +451,19 @@ public sealed class RetrievalBenchmarkTests
         };
 
         var invalidLimit = await KnowledgeCli.RunAsync(["evaluate", "--benchmark", benchmarkFile.Path,
-            "--output", reportFile.Path, "--config", configuration.Path], output, error, retrieverFactory: factory);
+            "--output", reportFile.Path, "--config", invalidLimitConfiguration.Path], output, error, retrieverFactory: factory);
         Assert.Equal(2, invalidLimit);
         Assert.Equal(0, factoryCalls);
         Assert.False(File.Exists(reportFile.Path));
+        Assert.Contains("Benchmark error: Evaluation requires dense mode and retrieval.maxLimit of at least five.", error.ToString());
 
+        error.GetStringBuilder().Clear();
         var overwrite = await KnowledgeCli.RunAsync(["evaluate", "--benchmark", benchmarkFile.Path,
-            "--output", benchmarkFile.Path, "--config", configuration.Path], output, error, retrieverFactory: factory);
+            "--output", benchmarkFile.Path, "--config", validConfiguration.Path], output, error, retrieverFactory: factory);
         Assert.Equal(2, overwrite);
         Assert.Equal(0, factoryCalls);
-        Assert.True(File.Exists(benchmarkFile.Path));
+        Assert.Contains("Benchmark error: Report path must be a separate JSON file.", error.ToString());
+        Assert.Equal(benchmarkBytes, File.ReadAllBytes(benchmarkFile.Path));
     }
 
     [Fact]
