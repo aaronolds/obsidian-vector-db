@@ -85,6 +85,9 @@ public sealed class LocalIndexingTests
         {
             using var indexOutput = new StringWriter();
             using var indexError = new StringWriter();
+            if (Environment.GetEnvironmentVariables().Keys.Cast<string>()
+                .Any(name => name.StartsWith("KNOWLEDGE_", StringComparison.OrdinalIgnoreCase)))
+                throw new XunitException("Unset KNOWLEDGE_ overrides before running the indexing integration suite.");
             var indexCode = await Knowledge.Indexer.KnowledgeCli.RunAsync(["index", "--config", config.Path], indexOutput, indexError);
             Assert.True(indexCode == 0, $"Index CLI failed with exit code {indexCode}: {indexError}");
 
