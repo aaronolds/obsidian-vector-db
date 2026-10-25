@@ -11,8 +11,8 @@ optional filters, explicit collection rebuild, local Hit@5 evaluation, and a
 stdio MCP host with read-only search/note tools. Milestone 3 live Qdrant/ONNX
 validation and the real-vault two-pass check passed; the unchanged second pass
 performed zero embedding calls and zero chunk writes. Milestone 6's real-vault
-benchmark and baseline, Milestone 7's live MCP equivalence check, and watching
-remain pending or deferred.
+benchmark and owner relevance review are complete (22/24 Hit@5). Milestone 7's live MCP equivalence check remains pending, and
+watching is deferred.
 Do not treat roadmap items as existing behavior.
 
 Read the relevant architecture and decisions in `docs/` before changing

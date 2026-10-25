@@ -200,10 +200,15 @@ Deleting the collection and rebuilding restores usable search.
 
 ## 8. Milestone 6: Retrieval benchmark
 
-Implementation status: local evaluator implemented; real-vault benchmark
-authoring, baseline capture, and manual review are pending. See the
-[detailed implementation plan](16-milestone-6-implementation-plan.md) for
-behavior and remaining acceptance gates.
+Implementation status: local evaluator implemented; the approved real-vault
+benchmark measured 22/24 Hit@5. The vault owner confirmed relevance review
+on 2026-10-24; Milestone 6 acceptance is complete. See the [detailed implementation
+plan](16-milestone-6-implementation-plan.md) for evidence and remaining gates.
+
+The [acceptance closure plan](16-milestone-6-implementation-plan.md#9-milestone-6-acceptance-closure-plan)
+records the coverage audit, full-CLI live verification, real-vault benchmark,
+reproducible dense run, and owner-confirmed manual review. Milestone 6 acceptance
+is complete; Milestone 7 acceptance remains separate.
 
 ### Objectives
 

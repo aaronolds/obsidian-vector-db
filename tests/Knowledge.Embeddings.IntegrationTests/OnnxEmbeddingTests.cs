@@ -1,5 +1,5 @@
 using Knowledge.Embeddings;
-using Knowledge.Indexer.Configuration;
+using Knowledge.Runtime.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using System.Text.Json;
@@ -56,11 +56,11 @@ public sealed class OnnxEmbeddingTests
     {
         using var service = CreateService();
         var config = Path.Combine(Root, "knowledge.milestone2.yaml");
-        using var loaded = Knowledge.Indexer.Configuration.KnowledgeConfiguration.Load(config);
+        using var loaded = KnowledgeConfiguration.Load(config);
         var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
         services.AddKnowledgeOptions(loaded, config);
         using var provider = services.BuildServiceProvider();
-        var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<Knowledge.Indexer.Configuration.KnowledgeOptions>>().Value;
+        var options = provider.GetRequiredService<Microsoft.Extensions.Options.IOptions<KnowledgeOptions>>().Value;
         var ingestor = new Knowledge.Markdown.MarkdownIngestor(service);
         var chunks = ingestor.ReadVault(new Knowledge.Markdown.MarkdownIngestionOptions(options.Vault.Id, options.Vault.Path,
             options.Index.Include, options.Index.Exclude, options.Index.FrontmatterOptOutField,

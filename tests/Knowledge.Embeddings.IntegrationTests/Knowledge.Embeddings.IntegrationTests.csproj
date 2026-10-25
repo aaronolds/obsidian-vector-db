@@ -14,6 +14,7 @@
     <Using Include="Xunit" />
     <ProjectReference Include="../../src/Knowledge.Embeddings/Knowledge.Embeddings.csproj" />
     <ProjectReference Include="../../src/Knowledge.Indexer/Knowledge.Indexer.csproj" />
+    <ProjectReference Include="../../src/Knowledge.Runtime/Knowledge.Runtime.csproj" />
     <ProjectReference Include="../../src/Knowledge.Markdown/Knowledge.Markdown.csproj" />
     <None Include="TestData/bge-reference.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
