@@ -86,8 +86,8 @@ obsidian-knowledge-platform/
 
 Milestone 7 implements `Knowledge.Mcp` as a local stdio executable. It exposes
 read-only `search_knowledge` over the shared dense retriever and `get_note` over
-current eligible Markdown. Unit protocol coverage passes; live Qdrant/ONNX
-search equivalence remains pending. See
+current eligible Markdown. Unit and live protocol coverage pass; live Qdrant/ONNX
+search equivalence and the Codex CLI client check completed on 2026-10-25. See
 [the Milestone 7 implementation plan](17-milestone-7-implementation-plan.md).
 
 ## POC definition of done

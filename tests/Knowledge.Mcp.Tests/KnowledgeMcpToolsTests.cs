@@ -130,6 +130,36 @@ public sealed class KnowledgeMcpToolsTests
         Assert.NotNull(note.StructuredContent);
         Assert.Contains("Protocol body.", note.Content.OfType<TextContentBlock>().Single().Text);
 
+        CallToolResult? wrongTypeResult = null;
+        Exception? wrongTypeException = null;
+        try
+        {
+            wrongTypeResult = await client.CallToolAsync("search_knowledge",
+                new Dictionary<string, object?> { ["query"] = 123 });
+        }
+        catch (Exception exception)
+        {
+            wrongTypeException = exception;
+        }
+        Assert.True(wrongTypeException is not null || wrongTypeResult?.IsError == true);
+
+        CallToolResult? unknownToolResult = null;
+        Exception? unknownToolException = null;
+        try
+        {
+            unknownToolResult = await client.CallToolAsync("unknown_knowledge_tool",
+                new Dictionary<string, object?>());
+        }
+        catch (Exception exception)
+        {
+            unknownToolException = exception;
+        }
+        Assert.True(unknownToolException is not null || unknownToolResult?.IsError == true);
+
+        var noteAfterProtocolErrors = await client.CallToolAsync("get_note",
+            new Dictionary<string, object?> { ["path"] = "Note.md" });
+        Assert.False(noteAfterProtocolErrors.IsError);
+
         var invalidSearch = await client.CallToolAsync("search_knowledge", new Dictionary<string, object?>
         {
             ["query"] = "PRIVATE_QUERY_SENTINEL",
@@ -166,6 +196,19 @@ public sealed class KnowledgeMcpToolsTests
         var note = await client.CallToolAsync("get_note", new Dictionary<string, object?> { ["path"] = "Note.md" });
         Assert.False(note.IsError);
         Assert.Contains("No Qdrant or model", note.Content.OfType<TextContentBlock>().Single().Text);
+
+        var search = await client.CallToolAsync("search_knowledge", new Dictionary<string, object?>
+        {
+            ["query"] = "PRIVATE_QUERY_SENTINEL"
+        });
+        Assert.True(search.IsError);
+        Assert.Contains("assets_unavailable", search.Content.OfType<TextContentBlock>().Single().Text);
+        Assert.DoesNotContain("PRIVATE_QUERY_SENTINEL", search.Content.OfType<TextContentBlock>().Single().Text);
+
+        var noteAfterFailure = await client.CallToolAsync("get_note",
+            new Dictionary<string, object?> { ["path"] = "Note.md" });
+        Assert.False(noteAfterFailure.IsError);
+        Assert.Contains("No Qdrant or model", noteAfterFailure.Content.OfType<TextContentBlock>().Single().Text);
     }
 
     private sealed class TemporaryVault : IDisposable
