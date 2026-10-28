@@ -99,6 +99,50 @@ public sealed class MarkdownNoteReaderTests
     }
 
     [Fact]
+    public async Task Empty_notes_are_valid_and_noncanonical_case_does_not_resolve()
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("Empty.md", string.Empty);
+        vault.Write("MixedCase.md", "Current body.");
+        var reader = vault.Reader();
+
+        var empty = await reader.GetNoteAsync(new KnowledgeNoteRequest(Path: "Empty.md"));
+
+        Assert.NotNull(empty);
+        Assert.Equal(string.Empty, empty.ContentMarkdown);
+        Assert.Null(await reader.GetNoteAsync(new KnowledgeNoteRequest(Path: "mixedcase.md")));
+    }
+
+    [Fact]
+    public async Task Invalid_utf8_source_fails_instead_of_returning_replacement_text()
+    {
+        using var vault = new TemporaryVault();
+        Directory.CreateDirectory(vault.Path);
+        await File.WriteAllBytesAsync(vault.FilePath("Invalid.md"), [0xC3, 0x28]);
+
+        await Assert.ThrowsAsync<System.Text.DecoderFallbackException>(() =>
+            vault.Reader().GetNoteAsync(new KnowledgeNoteRequest(Path: "Invalid.md")));
+    }
+
+    [Fact]
+    public async Task Internal_file_symlinks_remain_readable()
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("Target.md", "Inside the vault.");
+        try { File.CreateSymbolicLink(vault.FilePath("Alias.md"), vault.FilePath("Target.md")); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or PlatformNotSupportedException)
+        {
+            return;
+        }
+
+        var note = await vault.Reader().GetNoteAsync(new KnowledgeNoteRequest(Path: "Alias.md"));
+
+        Assert.NotNull(note);
+        Assert.Equal("Alias.md", note.Path);
+        Assert.Equal("Inside the vault.", note.ContentMarkdown);
+    }
+
+    [Fact]
     public void Read_snapshot_rechecks_every_ancestor_for_vault_containment()
     {
         using var vault = new TemporaryVault();

@@ -4,9 +4,9 @@ A local-first .NET 10 knowledge platform with authoritative Markdown and a
 rebuildable Qdrant index. The architecture in `docs/` and decisions in `docs/adr/`
 govern implementation.
 
-**Milestones 6 and 7 implemented; Milestone 6 acceptance complete with a
-reviewed 22/24 real-vault Hit@5 baseline. Milestone 7 live Qdrant/ONNX acceptance
-remains pending.**
+**Milestones 6 and 7 are implemented and accepted. Milestone 6's reviewed real-vault
+baseline scored 22/24 Hit@5; Milestone 7's live Qdrant/ONNX and Codex CLI client
+checks passed on 2026-10-25.**
 The executable loads and validates configuration, reports vault and vault-scoped index status,
 scans and chunks Markdown, generates local BGE-small embeddings through ONNX
 Runtime, incrementally indexes documents, rebuilds the configured Qdrant
@@ -277,8 +277,8 @@ assets. Both tools are read-only; returned note text is untrusted data. Tool
 errors and application diagnostics omit queries and note contents.
 
 The server uses the same retrieval service and index-profile fingerprint as the
-CLI. The live search-equivalence acceptance check requires pinned model assets
-and local Qdrant; see the [Milestone 7 plan](docs/17-milestone-7-implementation-plan.md).
+CLI. Live search equivalence and the Codex CLI stdio-client check passed with
+disposable synthetic vault data; see the [Milestone 7 evidence](docs/17-milestone-7-implementation-plan.md#96-verification-and-acceptance-closure).
 
 ## Evaluate dense retrieval
 

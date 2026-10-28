@@ -1,9 +1,8 @@
 # Milestone 7: MCP server
 
-Implementation status: implemented on 2026-10-23. Asset-free MCP protocol and
-note-reader tests pass. The live Qdrant/ONNX search-equivalence acceptance gate
-remains pending because the pinned model weights and a running local Qdrant were
-unavailable in this checkout.
+Implementation status: implemented on 2026-10-23; acceptance completed on
+2026-10-25. Asset-free tests, live Qdrant/ONNX search equivalence, and a Codex CLI
+stdio-client smoke test passed. Section 9.6 records commands and evidence.
 Planning and implementation date: 2026-10-23.
 
 ## 1. Outcome and scope
@@ -30,12 +29,13 @@ watching, hybrid search, reranking, graph expansion, model/chunking changes,
 arbitrary filesystem access, extra MCP resources/prompts, and Milestone 8's
 general hardening backlog.
 
-Milestone 6's evaluator exists, but its genuine real-vault benchmark, dense
-baseline, and manual review remain pending. The requested Milestone 7 work can
-proceed against the existing retrieval service; it neither completes that gate
-nor authorizes retrieval tuning. Record the outstanding gate in final evidence.
+Milestone 6 acceptance was completed on 2026-10-24 with an owner-reviewed
+22/24 Hit@5 dense baseline. Milestone 7 closure uses the existing retrieval
+service and does not authorize retrieval tuning or repeat that benchmark.
 
 ## 2. Starting point and project ownership
+
+Historical starting state at revision `a456098` on 2026-10-23:
 
 - `Knowledge.Mcp` is a `net10.0` library shell referencing Core. There is no MCP
   SDK, executable host, tool registration, or MCP test project.
@@ -227,7 +227,8 @@ attached to that untrusted data, never presented as system instructions.
    an intended local MCP client. Record versions, outcomes, and limitations.
 6. **Document implemented behavior.** Update README, configuration and domain
    contracts, security operating notes, project map, agent guidance, roadmap,
-   and this plan's evidence/status. Retain Milestone 6's pending acceptance.
+   and this plan's evidence/status. Preserve Milestone 6's separate acceptance
+   evidence and current completed status.
 
 ## 7. Validation and acceptance
 
@@ -326,7 +327,248 @@ Verification on 2026-10-23:
   are absent, and Docker could not access its local daemon socket in this
   environment. The integration test is ready for a workstation with those
   prerequisites; live acceptance remains pending.
-- Milestone 6's real-vault benchmark, baseline, and manual review remain pending.
+- Milestone 6's real-vault benchmark, baseline, and manual review were still
+  pending at this historical verification point; they closed on 2026-10-24.
 
-Milestone 7 implementation is complete; the live Qdrant/ONNX acceptance gate
-above is still open. This does not complete the broader POC or Milestone 6.
+At the 2026-10-23 implementation handoff, Milestone 7's live acceptance was
+still open. That verification is historical; Milestone 6 subsequently closed on
+2026-10-24 and Milestone 7 closed on 2026-10-25. The broader POC still requires
+its remaining acceptance work.
+
+## 9. Milestone 7 acceptance closure plan
+
+Plan and execution date: 2026-10-25. Status: complete; evidence follows in
+section 9.6.
+Work starts from revision `911d15d` on branch `codex/milestone-7-closure` in a
+dedicated managed worktree.
+
+### 9.1 Planning baseline before execution
+
+The following notes record the environment and coverage audit before acceptance
+work began. They explain the test setup and are superseded by section 9.6.
+
+- .NET SDK `10.0.402` is available. Local Compose reports Qdrant `v1.19.2`
+  running, with only `127.0.0.1:6334` published. Docker socket access requires
+  the execution environment's additional permission; it is not evidence of a
+  missing service.
+- Pinned model weights and the private local configuration exist in the primary
+  checkout. Ignored files were not copied into the new worktree: its tokenizer
+  exists, but its ONNX file and `knowledge.local.yaml` do not. Presence is not
+  digest verification or proof that a configuration is suitable for acceptance.
+- The live MCP suite currently contains one unexecuted acceptance test. It
+  indexes a synthetic vault and a foreign vault into a unique collection,
+  compares filtered MCP results with the shared CLI retriever field-for-field,
+  reads a note by path and ID, checks a source edit, and compares indexed chunk
+  metadata afterward. It does not launch the CLI entry point, compare full
+  stored payloads/vectors, or demonstrate an intended desktop MCP client.
+- Existing offline tests provide useful coverage, but section 7 is the required
+  coverage matrix, not proof every case is already tested. Audit actual tests
+  before adding coverage or claiming closure.
+- `src/Knowledge.Mcp/README.md` still describes a library shell. The roadmap
+  also carries the historical missing-assets explanation. Correct those during
+  documentation closure.
+
+### 9.2 Phase A: prepare an isolated, reproducible environment
+
+1. Verify the existing local ONNX and tokenizer digests using the pinned runtime
+   asset validation. Reuse those assets locally, without downloading or
+   committing weights. The live suite currently resolves the model relative to
+   its repository root; place an ignored local copy or symlink at that expected
+   path and verify resolution from this worktree. Prefer this over adding new
+   production configuration solely for acceptance.
+2. Inspect only necessary configuration fields. Use temporary synthetic vaults
+   and unique `knowledge-mcp-test-<id>` collections for automated checks. Use a
+   separate ignored acceptance configuration with absolute paths for the client
+   smoke test. Never point it at the deleted Milestone 6 collection or rebuild
+   an existing user collection.
+3. Confirm Qdrant health over local gRPC. Start the checked-in Compose service
+   only if needed; do not recreate a healthy service or change its bindings.
+   Check relevant `KNOWLEDGE_` overrides so inherited settings cannot redirect
+   test/client activity into another collection or vault.
+4. Restore and build the solution and separately restore the integration
+   projects. Record revision, SDK/runtime, pinned assets, SDK package version,
+   Qdrant version, command exit codes, and any actual blocker.
+
+Deliverable: verified local prerequisites and a disposable test environment.
+No modification to real Markdown or existing collections is required.
+
+### 9.3 Phase B: audit and close acceptance coverage gaps
+
+Map each section 7 requirement to an actual assertion in the unit or live
+suite. Add focused tests where required behavior lacks evidence; fix only
+failures within the existing MCP contracts and project boundaries.
+
+| Gate | Required execution evidence |
+|---|---|
+| Search parity | Default and explicit limits, path prefix, exact AND tags, empty results, and foreign-vault isolation; compare rank, IDs, path, title, heading, Markdown, and score with numeric tolerance only for independent inference |
+| CLI boundary | Compare at least one MCP request against the actual CLI search entry point under the same configuration/corpus; retain the shared-retriever comparison for precise field assertions |
+| Safe failure and recovery | Missing/incompatible collection, unavailable Qdrant, missing assets, invalid/binding arguments, and subsequent usable calls; discovery and note reads remain available without retrieval prerequisites |
+| Current note access | Path/ID equivalence, edits before reindexing, deletion/rename, opt-out/exclusion, empty notes, encoding/parser failures, and containment/link checks; offline coverage may establish filesystem cases |
+| Protocol and lifecycle | Exactly two advertised tools, actual input/output schemas, matching structured/text results, unknown tools, cancellation, concurrent/first-use calls, initialization retry, EOF/disconnect, and resource disposal |
+| Read-only and privacy | Unchanged source bytes and complete indexed state during read-only calls; protocol-only stdout, sanitized errors, and no query/note/server-error sentinels in stderr or log notifications |
+
+For index stability, snapshot all points belonging to both fixture vault IDs,
+including IDs, complete payloads, and vectors, before and after tool calls.
+Compare in memory or hash canonical sorted state; report only metadata/digests.
+Existing indexed-chunk metadata equality alone is weaker than full state
+equality. Inspect mutation RPCs if the harness supports it. Keep intentional
+fixture edits outside unchanged-source comparison windows, and assert the index
+stays unchanged across those edits and subsequent note reads.
+
+Use deterministic synthetic content without tied cutoff scores. Failure tests
+must target isolated fixtures or an unreachable test endpoint; do not stop the
+shared local Qdrant service. Bound process/request timeouts, dispose clients
+before cleanup, and delete only collections created by that test, including
+after failures. Preserve primary failures when reporting cleanup problems.
+
+Deliverable: coverage mapping, focused fixes/tests if needed, and live evidence
+for AC-009, privacy, and read-only operation. Avoid expanding into Milestone 8.
+
+### 9.4 Phase C: run verification and demonstrate the intended client
+
+Run from the new worktree after environment preparation and any focused fixes:
+
+```sh
+dotnet restore Knowledge.sln
+dotnet build Knowledge.sln --no-restore
+dotnet test Knowledge.sln --no-build --no-restore
+dotnet test tests/Knowledge.Embeddings.IntegrationTests/Knowledge.Embeddings.IntegrationTests.csproj
+dotnet test tests/Knowledge.Indexing.IntegrationTests/Knowledge.Indexing.IntegrationTests.csproj
+dotnet test tests/Knowledge.Mcp.IntegrationTests/Knowledge.Mcp.IntegrationTests.csproj
+dotnet build src/Knowledge.Mcp/Knowledge.Mcp.csproj --configuration Release
+```
+
+The three integration suites are separate from normal solution tests. Record
+actual test totals and outcomes; a successful build cannot substitute for a live
+run. Resolve restore/environment failures explicitly rather than silently
+omitting checks. Repeat affected checks after fixes.
+
+Then identify the intended installed local MCP client and verify that it can
+launch this stdio server. Use a dedicated temporary client entry with the built
+Release DLL and absolute configuration path, launched from outside the repo.
+Do not overwrite unrelated client settings. Demonstrate:
+
+1. Tool discovery returns exactly `search_knowledge` and `get_note`.
+2. Search of the indexed synthetic fixture returns the expected provenance and
+   agrees with the CLI under the same configuration and source/index snapshot.
+3. `get_note` succeeds by path and returned document ID, then reflects an
+   intentional synthetic-source edit before reindexing.
+4. Invalid input produces a sanitized error and a subsequent valid call works.
+5. Disconnect/reconnect shuts down and restarts cleanly without protocol noise.
+
+Record the client name/version, MCP SDK version, supported handshake/protocol
+details, launch shape, and outcomes. Keep request/response content out of
+committed evidence. If client access or compatibility prevents this check,
+retain that gate as pending and describe the exact missing step; automated SDK
+client tests alone do not satisfy the intended-client demonstration.
+
+Deliverable: passing automated results plus an actual intended-client smoke
+test. Remove only temporary client entries and test-created collections/files
+after the clients and server are stopped; verify collection deletion.
+
+### 9.5 Phase D: record evidence and close the milestone
+
+Update this document with dated commands, versions, test counts, parity and
+read-only/privacy evidence, client demonstration, and verified cleanup. Keep
+private logs/configuration under ignored local paths and commit no source text,
+queries, vectors, model weights, or build output.
+
+Once every gate passes, reconcile `README.md`, `AGENTS.md`, the Milestone 7
+roadmap entry, and `src/Knowledge.Mcp/README.md`. Review the related domain,
+configuration, and security docs and change them only if actual behavior or
+operating guidance requires it. Preserve the historical verification evidence
+and Milestone 6's reviewed baseline. Do not claim Milestone 8 or the full POC is
+complete. Review the final diff for unrelated changes and private artifacts.
+
+| Closure gate | Completion condition |
+|---|---|
+| Prerequisites | Pinned assets validated; local Qdrant and isolated configuration verified |
+| Regression | Solution and explicit live suites pass with recorded counts/exit codes |
+| Search equivalence | CLI and MCP produce equivalent ranked content/provenance with required filters and vault isolation |
+| Note access | Current eligible Markdown reads work with validated containment and independent retrieval availability |
+| Privacy/read-only/lifecycle | Coverage audit closed and execution evidence recorded; source/index snapshots match where expected |
+| Intended client | Built Release server discovered and both tools successfully exercised; client/version recorded |
+| Cleanup/documentation | Only disposable resources removed, removal verified, and status documents agree |
+
+No new benchmark, retrieval tuning, watcher, remote transport, or general
+hardening work was part of this closure.
+
+### 9.6 Verification and acceptance closure
+
+Executed on 2026-10-25 in this worktree. Pinned asset digests matched the
+checked-in manifest: ONNX model
+`828e1496d7fabb79cfa4dcd84fa38625c0d3d21da474a00f08db0f559940cf35` and
+tokenizer vocabulary
+`07eced375cec144d27c900241f3e339478dec958f92fddbc551f295c992038a3`. The
+.NET SDK was `10.0.402`; .NET runtime `10.0.13`; MCP SDK package
+`ModelContextProtocol` `2.3.0`; Qdrant `1.19.2`; Codex CLI `0.162.1`.
+
+The local Qdrant Compose service remained healthy with its gRPC port bound to
+`127.0.0.1:6334`. No `KNOWLEDGE_` overrides were set. The worktree model link,
+synthetic vault/configuration, client event log, and cleanup utility were local
+test aids and have been removed. No real vault notes or existing collections
+were changed.
+
+Final verification completed successfully:
+
+```text
+dotnet restore Knowledge.sln                                          exit 0
+dotnet restore tests/Knowledge.Embeddings.IntegrationTests/Knowledge.Embeddings.IntegrationTests.csproj -p:NuGetAudit=false
+                                                                      exit 0
+dotnet restore tests/Knowledge.Indexing.IntegrationTests/Knowledge.Indexing.IntegrationTests.csproj -p:NuGetAudit=false
+                                                                      exit 0
+dotnet restore tests/Knowledge.Mcp.IntegrationTests/Knowledge.Mcp.IntegrationTests.csproj -p:RestoreIgnoreFailedSources=true
+                                                                      exit 0
+dotnet build Knowledge.sln --no-restore                               exit 0; 0 warnings, 0 errors
+dotnet test Knowledge.sln --no-build --no-restore                     exit 0; 164/164
+dotnet test tests/Knowledge.Embeddings.IntegrationTests/Knowledge.Embeddings.IntegrationTests.csproj --no-restore
+                                                                      exit 0; 6/6
+dotnet test tests/Knowledge.Indexing.IntegrationTests/Knowledge.Indexing.IntegrationTests.csproj --no-restore
+                                                                      exit 0; 3/3
+dotnet test tests/Knowledge.Mcp.IntegrationTests/Knowledge.Mcp.IntegrationTests.csproj --no-restore
+                                                                      exit 0; 1/1
+dotnet build src/Knowledge.Mcp/Knowledge.Mcp.csproj --configuration Release --no-restore
+                                                                      exit 0; 0 warnings, 0 errors
+```
+
+The MCP integration test now compares explicit and default search result order
+against the actual `KnowledgeCli.RunAsync` search command and the shared
+retriever. It covers path-prefix and exact AND-tag filtering, empty results,
+foreign-vault isolation, concurrent search calls, note reads by path and ID,
+current source edits, a missing collection followed by successful search after
+indexing, unavailable Qdrant, wrong-typed arguments, and unknown tools. Valid
+note reads succeed after protocol and retrieval errors. Asset-free reader tests
+cover empty notes, canonical path casing, internal/external symlinks, invalid
+UTF-8, exclusions, opt-out, and deletion. Missing model assets return a
+sanitized `assets_unavailable` tool error while note reads and later calls remain
+available. For both fixture vaults the live test compares hashes of canonical
+full Qdrant point data, including complete payloads and vectors, before and after
+tool calls. It also checks source hashes around read-only operations.
+
+For the intended local client check, Codex CLI `0.162.1` ran the Release MCP DLL
+over stdio with temporary command-line configuration and `--ignore-user-config`;
+no persistent Codex settings changed. The client discovered exactly
+`get_note` and `search_knowledge`, searched the synthetic marker, read the note
+by path and canonical document ID, received a sanitized `invalid_request` for a
+blank query, and successfully read again afterward. The final client summary
+reported every check passing. The Codex command exited `0`.
+
+All test-owned collections were removed in test cleanup. The separate client
+smoke-test collection was explicitly deleted and verified absent. Full point
+and source comparisons passed for the intended read-only windows; the fixture
+note edit was intentionally visible to `get_note` without changing indexed
+state. Search equivalence, note eligibility/containment, privacy-safe failures,
+read-only behavior, lifecycle recovery, and client launch are demonstrated.
+
+| Closure gate | Result |
+|---|---|
+| Pinned assets, local Qdrant, isolated configuration | Passed; asset hashes verified and Qdrant remained loopback-only |
+| Solution and explicit integration regression suites | Passed: 164 unit, 6 embedding, 3 indexing, and 1 MCP tests |
+| CLI/MCP search parity and filters | Passed for explicit and default limits, path prefix, exact AND tags, empty results, and vault isolation |
+| Current note reads and failure independence | Passed by path and ID, source edit, missing model, missing collection, and unavailable Qdrant cases |
+| Read-only, privacy, and lifecycle | Passed with unchanged point payload/vector snapshots, sanitized errors, concurrent calls, and successful retries |
+| Intended local client | Passed with Codex CLI 0.162.1 using the built Release DLL over stdio |
+| Cleanup and documentation | Passed; disposable collection verified absent and status documents reconciled |
+
+Milestone 7 acceptance is complete. Milestone 6's owner-reviewed 22/24 baseline
+remains unchanged; Milestone 8 and the broader POC remain separate work.
