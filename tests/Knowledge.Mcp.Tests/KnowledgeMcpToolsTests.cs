@@ -141,7 +141,11 @@ public sealed class KnowledgeMcpToolsTests
         {
             wrongTypeException = exception;
         }
-        Assert.True(wrongTypeException is not null || wrongTypeResult?.IsError == true);
+        Assert.Null(wrongTypeException);
+        Assert.NotNull(wrongTypeResult);
+        Assert.True(wrongTypeResult.IsError);
+        Assert.Equal("An error occurred invoking 'search_knowledge'.",
+            wrongTypeResult.Content.OfType<TextContentBlock>().Single().Text);
 
         CallToolResult? unknownToolResult = null;
         Exception? unknownToolException = null;
