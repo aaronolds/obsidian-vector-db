@@ -38,6 +38,9 @@ public sealed class McpServerIntegrationTests
         using var vault = new IntegrationVault();
         const string initialMarkdown = "---\ntags: [mcp, acceptance]\n---\n# MCP acceptance\nThe phrase Violet Kestrel 7412 verifies local MCP search provenance.";
         vault.Write("Architecture/Mcp.md", initialMarkdown);
+        foreach (var index in Enumerable.Range(1, 4))
+            vault.Write($"Architecture/Mcp-{index}.md",
+                $"---\ntags: [mcp, acceptance]\n---\n# MCP acceptance {index}\nThe phrase Violet Kestrel 7412 verifies local MCP search provenance.");
         vault.Write("Other.md", "# Other\nAn unrelated note.");
 
         var collection = "knowledge-mcp-test-" + Guid.NewGuid().ToString("N")[..12];
@@ -52,6 +55,8 @@ public sealed class McpServerIntegrationTests
             Assert.True(indexed.IsComplete, string.Join(", ", indexed.Diagnostics.Select(item => item.Code)));
             var indexedChunks = await store.GetIndexedChunksAsync(options.Vault.Id);
             Assert.NotEmpty(indexedChunks);
+            Assert.Equal(5, indexedChunks.Count(item =>
+                item.RelativePath.StartsWith("Architecture/Mcp", StringComparison.Ordinal)));
 
             // A shared collection can contain other vaults. Exercise that boundary through
             // the indexer (the sole writer), then ensure the configured MCP vault stays scoped.
@@ -85,20 +90,21 @@ public sealed class McpServerIntegrationTests
 
             using var cliSearch = KnowledgeSearchSession.Create(options);
             var cliResults = await cliSearch.Retriever.SearchAsync(
-                new KnowledgeSearchRequest("Violet Kestrel 7412", 5, "Architecture/", ["mcp", "acceptance"]));
+                new KnowledgeSearchRequest("Violet Kestrel 7412", 4, "Architecture/", ["mcp", "acceptance"]));
             using var cliOutput = new StringWriter();
             using var cliError = new StringWriter();
             var cliCode = await Knowledge.Indexer.KnowledgeCli.RunAsync([
-                "search", "Violet Kestrel 7412", "--limit", "5", "--path", "Architecture/",
+                "search", "Violet Kestrel 7412", "--limit", "4", "--path", "Architecture/",
                 "--tag", "mcp", "--tag", "acceptance", "--config", configPath
             ], cliOutput, cliError);
             Assert.Equal(0, cliCode);
             Assert.DoesNotContain("Violet Kestrel 7412", cliError.ToString());
+            Assert.Equal(4, cliResults.Count);
             Assert.Equal(cliResults.Select(item => item.ChunkId), ExtractCliChunkIds(cliOutput.ToString()));
             var mcpSearch = await mcp.CallToolAsync("search_knowledge", new Dictionary<string, object?>
             {
                 ["query"] = "Violet Kestrel 7412",
-                ["limit"] = 5,
+                ["limit"] = 4,
                 ["pathPrefix"] = "Architecture/",
                 ["tags"] = new[] { "mcp", "acceptance" }
             });
@@ -129,7 +135,7 @@ public sealed class McpServerIntegrationTests
                 mcp.CallToolAsync("search_knowledge", new Dictionary<string, object?>
                 {
                     ["query"] = "Violet Kestrel 7412",
-                    ["limit"] = 5,
+                    ["limit"] = 4,
                     ["pathPrefix"] = "Architecture/",
                     ["tags"] = new[] { "mcp", "acceptance" }
                 }).AsTask()));
@@ -157,7 +163,9 @@ public sealed class McpServerIntegrationTests
             var defaultResponse = JsonSerializer.Deserialize<SearchResponse>(defaultMcpSearch.StructuredContent!.Value,
                 new JsonSerializerOptions(JsonSerializerDefaults.Web));
             Assert.NotNull(defaultResponse);
-            Assert.Equal(Math.Min(options.Retrieval.DefaultLimit, indexedChunks.Count), defaultResponse.Results.Count);
+            Assert.Equal(2, options.Retrieval.DefaultLimit);
+            Assert.Equal(options.Retrieval.DefaultLimit, defaultResponse.Results.Count);
+            Assert.Equal(options.Retrieval.DefaultLimit, ExtractCliChunkIds(defaultCliOutput.ToString()).Length);
             Assert.Equal(ExtractCliChunkIds(defaultCliOutput.ToString()), defaultResponse.Results.Select(item => item.ChunkId));
 
             var emptySearch = await mcp.CallToolAsync("search_knowledge", new Dictionary<string, object?>
@@ -228,7 +236,7 @@ public sealed class McpServerIntegrationTests
         Embedding = new EmbeddingOptions { Provider = "onnx", Model = OnnxEmbeddingService.ModelName,
             Dimensions = OnnxEmbeddingService.Dimensions, ModelPath = model, TokenizerPath = tokenizer },
         Qdrant = new QdrantOptions { Host = "localhost", Port = 6334, Collection = collection },
-        Retrieval = new RetrievalOptions { DefaultLimit = 5, MaxLimit = 50, Mode = "dense" }
+        Retrieval = new RetrievalOptions { DefaultLimit = 2, MaxLimit = 50, Mode = "dense" }
     };
 
     private static string ReadText(ModelContextProtocol.Protocol.CallToolResult result) =>
