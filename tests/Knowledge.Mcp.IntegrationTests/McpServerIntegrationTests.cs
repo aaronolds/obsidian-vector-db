@@ -311,7 +311,8 @@ public sealed class McpServerIntegrationTests
 
             var retrySearch = await retryClient.CallToolAsync("search_knowledge", new Dictionary<string, object?>
             {
-                ["query"] = "Violet Kestrel 7412"
+                ["query"] = "Violet Kestrel 7412",
+                ["limit"] = 50
             });
             Assert.False(retrySearch.IsError, ReadText(retrySearch));
             Assert.Contains(JsonSerializer.Deserialize<SearchResponse>(retrySearch.StructuredContent!.Value,
@@ -418,7 +419,7 @@ public sealed class McpServerIntegrationTests
                   port: {options.Qdrant.Port}
                   collection: {options.Qdrant.Collection}
                 retrieval:
-                  defaultLimit: 5
+                  defaultLimit: {options.Retrieval.DefaultLimit}
                   maxLimit: 50
                   mode: dense
                 logging:

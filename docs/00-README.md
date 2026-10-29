@@ -43,6 +43,7 @@ The documentation in this package reflects the decisions reached during architec
 | `15-milestone-5-implementation-plan.md` | Explicit collection rebuild, vault-scoped status, and verification evidence |
 | `16-milestone-6-implementation-plan.md` | Evaluator behavior, pending real-vault Hit@5 baseline, and review gates |
 | `17-milestone-7-implementation-plan.md` | Local MCP host, shared retrieval, authoritative note reads, and verification evidence |
+| `18-milestone-8-implementation-plan.md` | Planned hardening audit, deterministic rebuild validation, and final POC acceptance gates |
 | `adr/` | Architecture Decision Records |
 
 ## Initial technology baseline

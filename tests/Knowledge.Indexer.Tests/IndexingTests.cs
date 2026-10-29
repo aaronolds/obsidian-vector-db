@@ -163,6 +163,29 @@ public sealed class IndexingTests
     }
 
     [Fact]
+    public async Task Unconfirmed_document_write_prevents_stale_document_cleanup()
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("Current.md", "# Current\nNew current content.");
+        vault.Write("Deleted.md", "# Deleted\nKeep until Qdrant writes are confirmed.");
+        var (coordinator, _, store) = Create(vault);
+        var initial = await coordinator.IndexAsync();
+        Assert.True(initial.IsComplete);
+        var deletedDocument = store.Points.Values.Single(point => point.RelativePath == "Deleted.md").DocumentId;
+
+        File.Delete(Path.Combine(vault.Path, "Deleted.md"));
+        vault.Write("Current.md", "# Current\nChanged content to force a write.");
+        store.FailNextUpsert = true;
+
+        var failed = await coordinator.IndexAsync();
+
+        Assert.False(failed.IsComplete);
+        Assert.Contains(failed.Diagnostics, item => item.Code == "qdrant-write-failed");
+        Assert.Contains(store.Points.Values, item => item.DocumentId == deletedDocument);
+        Assert.DoesNotContain(store.Points.Values, item => item.RelativePath == "Current.md");
+    }
+
+    [Fact]
     public async Task Missing_vault_does_not_delete_existing_points()
     {
         using var vault = new TemporaryVault();
@@ -348,6 +371,7 @@ public sealed class IndexingTests
         public Dictionary<Guid, IndexedChunkMetadata> Points { get; } = [];
         public int UpsertCalls { get; private set; }
         public int RecreateCalls { get; private set; }
+        public bool FailNextUpsert { get; set; }
         public Task EnsureCollectionAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public Task RecreateCollectionAsync(CancellationToken cancellationToken = default)
         {
@@ -369,6 +393,11 @@ public sealed class IndexingTests
         public Task UpsertAsync(IReadOnlyList<KnowledgeIndexPoint> points, CancellationToken cancellationToken = default)
         {
             UpsertCalls++;
+            if (FailNextUpsert)
+            {
+                FailNextUpsert = false;
+                throw new InvalidOperationException("Synthetic unconfirmed Qdrant write.");
+            }
             foreach (var item in points)
                 Points[item.PointId] = new IndexedChunkMetadata(item.PointId.ToString(), item.Chunk.VaultId,
                     item.Chunk.DocumentId, item.Chunk.ChunkId, item.Chunk.RelativePath, item.Chunk.FileHash,

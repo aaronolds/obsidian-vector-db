@@ -201,7 +201,9 @@ public sealed class IndexCoordinator(
                 qdrantWatch.Stop();
                 qdrantDuration += qdrantWatch.Elapsed;
                 failed++;
+                qdrantFailed = true;
                 diagnostics.Add(new IngestionDiagnostic(file.RelativePath, "qdrant-write-failed", "The document write could not be confirmed and will be retried on the next run."));
+                break;
             }
         }
 

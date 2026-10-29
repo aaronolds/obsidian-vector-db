@@ -257,6 +257,11 @@ An MCP client can search the vault and receive provenance-equivalent results to 
 
 ## 10. Milestone 8: Hardening
 
+Status: planned; implementation and acceptance remain open. See the detailed
+[Milestone 8 implementation plan](18-milestone-8-implementation-plan.md) for
+the coverage audit, focused hardening sequence, deterministic rebuild checks,
+and POC acceptance gates.
+
 ### Objectives
 
 - error handling
