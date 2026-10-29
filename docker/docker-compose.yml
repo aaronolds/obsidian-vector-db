@@ -2,7 +2,7 @@
 name: knowledge-local
 services:
   qdrant:
-    image: qdrant/qdrant:v1.19.2
+    image: qdrant/qdrant:v1.20.0
     ports:
       - "127.0.0.1:6334:6334"
     environment:
