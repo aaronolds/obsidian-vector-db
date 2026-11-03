@@ -4,9 +4,18 @@ A local-first .NET 10 knowledge platform with authoritative Markdown and a
 rebuildable Qdrant index. The architecture in `docs/` and decisions in `docs/adr/`
 govern implementation.
 
-**Milestones 6 and 7 are implemented and accepted. Milestone 6's reviewed real-vault
-baseline scored 22/24 Hit@5; Milestone 7's live Qdrant/ONNX and Codex CLI client
-checks passed on 2026-10-25.**
+**The POC and Milestones 1–8 are complete as of 2026-10-30.**
+The final Release build has zero warnings/errors; 194 unit tests and 12 explicit
+integration tests pass. See the [formal closure and requirements evidence]
+(docs/18-milestone-8-implementation-plan.md#7-final-verification-and-poc-closure).
+The owner-reviewed dense baseline remains 22/24 Hit@5 (91.7%).
+
+The next milestone is [answer-quality and agent evaluation]
+(docs/19-answer-quality-agent-evaluation-plan.md): 20 representative questions
+using Codex with `search_knowledge` and `get_note`, with human review of answers,
+citations, grounding, and tool use. It is designed but has not run. Hybrid
+retrieval remains conditional on those results.
+
 The executable loads and validates configuration, reports vault and vault-scoped index status,
 scans and chunks Markdown, generates local BGE-small embeddings through ONNX
 Runtime, incrementally indexes documents, rebuilds the configured Qdrant
@@ -44,7 +53,7 @@ docker compose -f docker/docker-compose.yml up -d
 docker compose -f docker/docker-compose.yml ps
 ```
 
-Compose pins Qdrant to `v1.19.2`, stores data in the named
+Compose pins Qdrant to `v1.20.0`, stores data in the named
 `knowledge-local_qdrant-storage` volume, and publishes only `127.0.0.1:6334`
 (gRPC). REST, the dashboard, and cluster ports are not published. Telemetry is
 disabled. There are no credentials or initialization scripts. The `index` command
@@ -272,7 +281,10 @@ repairs the collection.
 `get_note` accepts exactly one canonical vault-relative Markdown path or
 document ID. It reads current eligible Markdown from the vault, including
 frontmatter, and enforces configured include/exclude rules, `ai-index: false`,
-and vault containment for symbolic links. It does not require Qdrant or model
+and vault containment for symbolic links. Both link aliases and fully resolved
+targets must satisfy include/exclude rules; linked target ancestors are resolved
+again before reading. Case comparisons for containment are conservative.
+Filesystem checks do not provide atomic protection against concurrent link swaps. It does not require Qdrant or model
 assets. Both tools are read-only; returned note text is untrusted data. Tool
 errors and application diagnostics omit queries and note contents.
 
@@ -401,6 +413,25 @@ running local Qdrant:
 ```sh
 dotnet test tests/Knowledge.Mcp.IntegrationTests/Knowledge.Mcp.IntegrationTests.csproj
 ```
+
+## Recovery and refresh
+
+Run `index` explicitly after editing, renaming, deleting, excluding, or opting out
+notes. Search returns indexed passages; `get_note` reads current eligible source.
+There is no watcher or automatic index repair. After upgrading from earlier
+versions, run `index` to remove any previously indexed aliases to excluded targets.
+
+If local assets are missing or fail digest validation, restore the pinned files
+and retry. If Qdrant is unavailable, start/check the local Compose service and
+retry; `get_note` remains usable independently. Keep `logContent` and `logQueries`
+false when troubleshooting.
+
+If a profile or collection is incompatible, select a fresh collection or use
+`rebuild` on a dedicated collection. Rebuild deletes all vault IDs in that
+collection. A missing/unreadable vault or failed source-read preflight retains
+the existing collection. Malformed parsing or an interruption after deletion can
+leave partial state. Rerun `index` to repair missing/incomplete documents or
+`rebuild` to recreate all derived state. Run only one writer per collection.
 
 ## GitHub automation and contributing
 

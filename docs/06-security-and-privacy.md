@@ -56,9 +56,23 @@ POC:
 - reject absolute paths outside the vault
 - follow explicit symlink policy
 
-Recommended POC symlink policy:
+Implemented POC symlink policy:
 
-> Do not follow symlinks that resolve outside the configured vault root.
+- Resolve every component of link targets, including newly introduced linked
+  ancestors; reject targets outside the configured vault root.
+- Both the logical alias and fully resolved physical target must satisfy
+  includes and excludes. Exclusion wins. `ai-index: false` applies to the source.
+- Track active directory ancestry to terminate cycles without letting an
+  excluded alias hide another eligible path. Resolve at most 64 links per path;
+  an unresolvable chain fails discovery safely.
+- Recheck containment at source read time. Containment uses conservative ordinal
+  path comparisons rather than assuming the filesystem ignores case. A link
+  with inconsistent path casing can be rejected even on a case-insensitive disk.
+
+These checks are not atomic against concurrent filesystem/link replacement.
+The POC assumes a trusted local owner rather than a hostile concurrent writer.
+MCP accepts canonical, case-sensitive discovered note identities. After an
+upgrade, run `index` to remove previously indexed aliases that no longer qualify.
 
 The MCP host writes protocol frames only to stdout. Diagnostics and help use
 stderr; console logging providers are disabled while serving so note text, query
@@ -106,10 +120,11 @@ Not allowed by default:
 - search-result bodies
 - full user queries when they may contain sensitive content
 
-Recommended query logging:
-
-- disabled or redacted by default
-- explicit debug option for local troubleshooting
+`logContent` and `logQueries` must both be false at every supported log level.
+No debug option enables content or query logging. Explicit CLI inspection/search
+output and MCP tool results intentionally contain requested data; they are not
+application logs. Future agent-evaluation traces are private, opt-in client
+artifacts under ignored `eval/local/`, not server logging.
 
 ## 8. Secrets
 

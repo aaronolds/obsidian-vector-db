@@ -81,10 +81,9 @@ public sealed class MarkdownIngestor
         var rootInfo = ResolveDirectory(new DirectoryInfo(root));
         root = Path.GetFullPath(rootInfo.FullName);
         var resolvedRoot = rootInfo;
-        var pathComparer = OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparer.OrdinalIgnoreCase
-            : StringComparer.Ordinal;
-        var visited = new HashSet<string>(pathComparer);
+        // Track the active ancestry, not every visited target: an excluded alias
+        // must not suppress a later eligible canonical path to the same directory.
+        var visited = new HashSet<string>(StringComparer.Ordinal);
         var complete = true;
         try
         {
@@ -113,6 +112,7 @@ public sealed class MarkdownIngestor
             {
                 diagnostics.Add(new IngestionDiagnostic(relativeDirectory, "scan-failed", "A vault directory could not be enumerated."));
                 complete = false;
+                visited.Remove(Path.GetFullPath(physical.FullName));
                 return;
             }
 
@@ -133,10 +133,15 @@ public sealed class MarkdownIngestor
                 // (for example /var versus /private/var on macOS). Build the child
                 // path from the already-resolved parent before resolving file links.
                 var candidate = new FileInfo(Path.Combine(physical.FullName, child.Name));
-                var resolved = candidate.ResolveLinkTarget(true) ?? candidate;
+                var resolved = new FileInfo(ResolvePhysicalPath(candidate.FullName));
                 if (!IsInside(resolvedRoot, resolved)) continue;
+                // Both the requested alias and its physical target must be eligible.
+                // A link outside an excluded folder cannot publish its contents.
+                var targetRelative = NormalizePath(Path.GetRelativePath(root, resolved.FullName));
+                if (!MatchesAny(targetRelative, options.Include) || MatchesAny(targetRelative, options.Exclude)) continue;
                 files.Add(new VaultFile(resolved.FullName, relative, root));
             }
+            visited.Remove(Path.GetFullPath(physical.FullName));
         }
     }
 
@@ -164,7 +169,7 @@ public sealed class MarkdownIngestor
             FileSystemInfo component = index == relativeParts.Length - 1
                 ? new FileInfo(currentPath)
                 : new DirectoryInfo(currentPath);
-            var resolved = component.ResolveLinkTarget(true) ?? component;
+            var resolved = new FileInfo(ResolvePhysicalPath(component.FullName));
             if (!IsInside(root, resolved))
                 throw new UnauthorizedAccessException("The resolved note path is outside the configured vault.");
             currentPath = Path.GetFullPath(resolved.FullName);
@@ -241,18 +246,51 @@ public sealed class MarkdownIngestor
     }
 
     private static DirectoryInfo ResolveDirectory(DirectoryInfo directory) =>
-        (DirectoryInfo?)directory.ResolveLinkTarget(true) ?? directory;
+        new(ResolvePhysicalPath(directory.FullName));
+
+    private static string ResolvePhysicalPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var links = 0;
+        while (true)
+        {
+            var root = Path.GetPathRoot(full)!;
+            var parts = full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+            var current = root;
+            var followedLink = false;
+            for (var index = 0; index < parts.Length; index++)
+            {
+                current = Path.Combine(current, parts[index]);
+                FileSystemInfo component = index == parts.Length - 1
+                    ? new FileInfo(current)
+                    : new DirectoryInfo(current);
+                // Missing ordinary targets remain candidates so source-read
+                // preflight can report them without recreating the collection.
+                if (component.LinkTarget is null) continue;
+                var target = component.ResolveLinkTarget(false);
+                if (target is null) continue;
+                if (++links > 64) throw new IOException("The filesystem link chain could not be resolved safely.");
+                // ResolveLinkTarget(true) only follows the final component. Its
+                // returned target can itself contain linked ancestors, so restart
+                // the component walk after every link, including /var-style aliases.
+                full = Path.GetFullPath(Path.Combine(target.FullName, Path.Combine(parts[(index + 1)..])));
+                followedLink = true;
+                break;
+            }
+            if (!followedLink) return current;
+        }
+    }
 
     private static bool IsInside(DirectoryInfo root, FileSystemInfo path)
     {
         var fullRoot = Path.GetFullPath(root.FullName).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         var full = Path.GetFullPath(path.FullName);
         if (string.Equals(full.TrimEnd(Path.DirectorySeparatorChar), fullRoot.TrimEnd(Path.DirectorySeparatorChar),
-                OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+                StringComparison.Ordinal))
             return true;
-        return full.StartsWith(fullRoot, OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()
-            ? StringComparison.OrdinalIgnoreCase
-            : StringComparison.Ordinal);
+        // Use a conservative comparison even on systems that usually ignore case;
+        // macOS volumes and Windows directories can also be case-sensitive.
+        return full.StartsWith(fullRoot, StringComparison.Ordinal);
     }
 
     private static bool MatchesAny(string path, IReadOnlyList<string> patterns) => patterns.Any(pattern => GlobMatch(path, pattern));

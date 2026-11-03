@@ -564,6 +564,11 @@ public static class KnowledgeCli
             await error.WriteLineAsync("Indexing cancelled; run index again to repair any incomplete document.");
             return 130;
         }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            await error.WriteLineAsync("Configuration error: unknown key, incompatible value, or invalid path. Check the selected configuration and KNOWLEDGE_ overrides.");
+            return 2;
+        }
     }
 
     private static async Task<int> RunRebuildAsync(string[] args, TextWriter output, TextWriter error, CancellationToken cancellationToken)
@@ -708,6 +713,11 @@ public static class KnowledgeCli
             await error.WriteLineAsync("Chunking cancelled.");
             return 130;
         }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            await error.WriteLineAsync("Configuration error: unknown key, incompatible value, or invalid path. Check the selected configuration and KNOWLEDGE_ overrides.");
+            return 2;
+        }
     }
 
     private static async Task<int> RunEmbeddingsAsync(string[] args, TextWriter output, TextWriter error, CancellationToken cancellationToken)
@@ -815,6 +825,11 @@ public static class KnowledgeCli
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             await error.WriteLineAsync("Embedding asset error: a configured local model asset cannot be read.");
+            return 2;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or NotSupportedException)
+        {
+            await error.WriteLineAsync("Configuration error: unknown key, incompatible value, or invalid path. Check the selected configuration and KNOWLEDGE_ overrides.");
             return 2;
         }
         catch (Exception) when (cancellationToken.IsCancellationRequested)

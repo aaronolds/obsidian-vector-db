@@ -324,7 +324,9 @@ Architecturally planned, not part of the initial dense POC.
 
 ### Recommended default
 
-Introduce after a dense benchmark is recorded.
+The dense baseline is recorded. First measure answer quality and agent tool use
+with [Milestone 9](19-answer-quality-agent-evaluation-plan.md); introduce a hybrid
+experiment only if diagnosed failures justify it over other improvements.
 
 ---
 

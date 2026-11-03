@@ -117,4 +117,51 @@ public sealed class CliTests
         Assert.Contains("Invalid YAML", error.ToString());
         Assert.DoesNotContain("PRIVATE_CONTENT_SENTINEL", error.ToString());
     }
+
+    [Theory]
+    [InlineData("status")]
+    [InlineData("chunks")]
+    [InlineData("embeddings")]
+    [InlineData("index")]
+    [InlineData("rebuild")]
+    [InlineData("search")]
+    [InlineData("evaluate")]
+    public async Task Incompatible_configuration_values_fail_safely_before_runtime_composition(string command)
+    {
+        using var file = new TemporaryConfiguration("vault: {id: primary, path: .}\nindex: {include: ['**/*.md']}\nchunking: {targetTokens: PRIVATE_VALUE_SENTINEL}\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        string[] args = command switch
+        {
+            "search" => [command, "PRIVATE_QUERY_SENTINEL", "--config", file.Path],
+            "evaluate" => [command, "--benchmark", "missing.json", "--output", "missing-report.json", "--config", file.Path],
+            _ => [command, "--config", file.Path]
+        };
+        Assert.Equal(2, await KnowledgeCli.RunAsync(args, output, error));
+        Assert.Equal("", output.ToString());
+        Assert.NotEmpty(error.ToString());
+        Assert.DoesNotContain("PRIVATE_", error.ToString());
+        Assert.DoesNotContain(" at ", error.ToString());
+    }
+
+    [Theory]
+    [InlineData("Trace")]
+    [InlineData("Debug")]
+    [InlineData("Information")]
+    [InlineData("Warning")]
+    [InlineData("Error")]
+    [InlineData("Critical")]
+    [InlineData("None")]
+    public async Task Malformed_note_diagnostics_omit_content_at_every_supported_log_level(string level)
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("Broken.md", "---\ntags: [PRIVATE_NOTE_SENTINEL\n---\nPRIVATE_BODY_SENTINEL");
+        using var file = new TemporaryConfiguration($"vault: {{id: primary, path: '{vault.Path}'}}\nindex: {{include: ['**/*.md']}}\nlogging: {{level: {level}}}\n");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        Assert.Equal(1, await KnowledgeCli.RunAsync(["chunks", "--config", file.Path], output, error));
+        Assert.Equal("", output.ToString());
+        Assert.Contains("Broken.md", error.ToString());
+        Assert.DoesNotContain("PRIVATE_", error.ToString());
+    }
 }

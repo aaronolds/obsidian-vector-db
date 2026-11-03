@@ -198,8 +198,8 @@ sequenceDiagram
         I->>I: Skip document
     else new or changed
         I->>V: Read Markdown
-        I->>I: Parse + normalize + chunk
         I->>Q: Delete existing document chunks
+        I->>I: Parse + normalize + chunk
         loop each chunk
             I->>E: Embed constructed embedding text
             E-->>I: 384-d vector
@@ -249,8 +249,8 @@ knowledge rebuild
 
 Rebuild semantics:
 
-1. Delete or recreate the Qdrant collection.
-2. Re-read all included Markdown.
+1. Validate pinned local assets, complete discovery, and check candidate reads.
+2. Delete/recreate the collection and re-read all eligible Markdown.
 3. Recreate all chunks.
 4. Regenerate all embeddings.
 5. End with a functionally equivalent retrieval index.
@@ -394,7 +394,9 @@ ranked results
 
 ### 14.2 Target evolution
 
-Hybrid retrieval is the intended next-stage architecture:
+The next stage measures answer quality and agent tool use; see
+[Milestone 9](19-answer-quality-agent-evaluation-plan.md). Hybrid retrieval is a
+candidate only if diagnosed failures justify it. Its possible architecture is:
 
 ```text
              Query

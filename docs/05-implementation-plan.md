@@ -203,7 +203,7 @@ Deleting the collection and rebuilding restores usable search.
 Implementation status: local evaluator implemented; the approved real-vault
 benchmark measured 22/24 Hit@5. The vault owner confirmed relevance review
 on 2026-10-24; Milestone 6 acceptance is complete. See the [detailed implementation
-plan](16-milestone-6-implementation-plan.md) for evidence and remaining gates.
+plan](16-milestone-6-implementation-plan.md) for completed acceptance evidence.
 
 The [acceptance closure plan](16-milestone-6-implementation-plan.md#9-milestone-6-acceptance-closure-plan)
 records the coverage audit, full-CLI live verification, real-vault benchmark,
@@ -257,10 +257,10 @@ An MCP client can search the vault and receive provenance-equivalent results to 
 
 ## 10. Milestone 8: Hardening
 
-Status: planned; implementation and acceptance remain open. See the detailed
-[Milestone 8 implementation plan](18-milestone-8-implementation-plan.md) for
-the coverage audit, focused hardening sequence, deterministic rebuild checks,
-and POC acceptance gates.
+Status: complete on 2026-10-30; the POC is formally closed. See the
+[Milestone 8 closure evidence](18-milestone-8-implementation-plan.md#7-final-verification-and-poc-closure)
+for the requirements audit, hardening fixes, deterministic rebuild comparisons,
+and final Release acceptance results.
 
 ### Objectives
 
@@ -279,11 +279,35 @@ All POC acceptance criteria are demonstrated.
 
 ---
 
-## 11. Post-POC Milestone 9: Hybrid retrieval
+## 11. Post-POC Milestone 9: Answer-quality and agent evaluation
+
+Status: designed on 2026-10-30; implementation, question approval, execution,
+and human review are pending. See the [evaluation milestone design](19-answer-quality-agent-evaluation-plan.md).
+
+### Objectives
+
+- Freeze 20 representative questions and verified, hidden reference labels.
+- Run Codex with `search_knowledge` and `get_note` in fresh, bounded contexts.
+- Review correctness, completeness, grounding, citations, and tool judgment.
+- Separate retrieval failures from context, synthesis, source, and safety failures.
+- Record a measured baseline and recommend the highest-value next improvement.
+
+### Exit criteria
+
+All 20 outcomes are retained and reviewed, with a reproducible run manifest,
+private evidence, a safe aggregate report, and an evidence-backed next-step decision.
+No answer-quality results have been measured yet.
+
+---
+
+## 12. Candidate post-POC Milestone 10: Hybrid retrieval
 
 ### Trigger
 
-Proceed when the dense benchmark reveals exact-term or acronym weaknesses, or when hybrid is otherwise justified by measured quality.
+Proceed only when the agent evaluation and retrieval benchmark diagnose failures
+hybrid could address and justify it over competing improvements. Follow the
+[decision gate](19-answer-quality-agent-evaluation-plan.md#7-failure-attribution-and-next-improvement-decision).
+Milestone numbering reserves a candidate; it is not implementation approval.
 
 ### Objectives
 
@@ -299,7 +323,7 @@ Hybrid must materially improve benchmark quality without unacceptable complexity
 
 ---
 
-## 12. Post-POC Milestone 10: Obsidian graph-assisted retrieval
+## 13. Later candidate: Obsidian graph-assisted retrieval
 
 Potential work:
 
@@ -312,7 +336,7 @@ Do not add a graph database unless the relational structure becomes complex enou
 
 ---
 
-## 13. Suggested backlog
+## 14. Suggested backlog
 
 ### Epic: Foundation
 
@@ -381,7 +405,7 @@ Do not add a graph database unless the relational structure becomes complex enou
 - Review logs for content leakage
 - Document operating procedure
 
-## 14. Recommended implementation order
+## 15. Recommended implementation order
 
 ```text
 Infrastructure
@@ -400,9 +424,11 @@ Evaluation
     ↓
 MCP
     ↓
-Hardening
+Hardening / POC closure
     ↓
-Hybrid retrieval
+Answer-quality / agent evaluation
+    ↓
+Evidence-based next improvement (hybrid is a candidate)
 ```
 
 The architecture deliberately puts evaluation before retrieval sophistication.

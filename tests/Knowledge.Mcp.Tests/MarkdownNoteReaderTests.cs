@@ -143,6 +143,22 @@ public sealed class MarkdownNoteReaderTests
     }
 
     [Fact]
+    public async Task Internal_aliases_to_excluded_targets_are_not_readable_by_path_or_id()
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("Templates/Secret.md", "PRIVATE_NOTE_SENTINEL");
+        File.CreateSymbolicLink(vault.FilePath("Alias.md"), vault.FilePath("Templates/Secret.md"));
+        Directory.CreateSymbolicLink(vault.FilePath("AliasFolder"), vault.FilePath("Templates"));
+        File.CreateSymbolicLink(vault.FilePath("Indirect.md"), vault.FilePath("AliasFolder/Secret.md"));
+        foreach (var path in new[] { "Alias.md", "AliasFolder/Secret.md", "Indirect.md" })
+        {
+            Assert.Null(await vault.Reader().GetNoteAsync(new KnowledgeNoteRequest(Path: path)));
+            Assert.Null(await vault.Reader().GetNoteAsync(new KnowledgeNoteRequest(
+                DocumentId: KnowledgeIdentity.DocumentId("test-vault", path))));
+        }
+    }
+
+    [Fact]
     public void Read_snapshot_rechecks_every_ancestor_for_vault_containment()
     {
         using var vault = new TemporaryVault();

@@ -35,3 +35,14 @@ The authoritative metric requirements are in the
 [retrieval evaluation plan](../docs/04-retrieval-evaluation-plan.md).
 For the execution sequence and evidence required to close acceptance, follow the
 [Milestone 6 acceptance closure plan](../docs/16-milestone-6-implementation-plan.md#9-milestone-6-acceptance-closure-plan).
+
+## Post-POC answer-quality evaluation
+
+[Milestone 9](../docs/19-answer-quality-agent-evaluation-plan.md) designs a separate
+20-question Codex evaluation using `search_knowledge` and `get_note`. Its runner,
+dataset, and scored run are not implemented or executed yet. Keep future private
+questions, hidden reference labels, tool traces, answers, and human scores under
+`eval/local/agent-quality/`. The existing `knowledge evaluate` command continues
+to measure retrieval Hit@5 only. Agent failures will inform whether hybrid,
+context selection, synthesis, source maintenance, or another change should come
+next; preserve the reviewed dense baseline for paired retrieval comparisons.

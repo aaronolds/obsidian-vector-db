@@ -10,7 +10,11 @@ The initial objective is deliberately narrow:
 
 ## Status
 
-Architecture baseline: **Approved for POC implementation**
+POC: **Complete and formally closed on 2026-10-30.**
+See [Milestone 8 closure evidence](18-milestone-8-implementation-plan.md#7-final-verification-and-poc-closure).
+The dense baseline is 22/24 Hit@5. The next step is the designed, unexecuted
+[Milestone 9 answer-quality/agent evaluation](19-answer-quality-agent-evaluation-plan.md);
+hybrid retrieval remains an evidence-gated candidate.
 
 The documentation in this package reflects the decisions reached during architecture discussions and resolves remaining ambiguities with recommended defaults.
 
@@ -41,9 +45,10 @@ The documentation in this package reflects the decisions reached during architec
 | `13-milestone-4-implementation-plan.md` | Dense CLI retrieval implementation, query formatting, filters, and verification evidence |
 | `14-github-automation.md` | Build/audit workflows, dependency maintenance, and manual branch-protection/Copilot review activation |
 | `15-milestone-5-implementation-plan.md` | Explicit collection rebuild, vault-scoped status, and verification evidence |
-| `16-milestone-6-implementation-plan.md` | Evaluator behavior, pending real-vault Hit@5 baseline, and review gates |
+| `16-milestone-6-implementation-plan.md` | Evaluator behavior, reviewed 22/24 real-vault Hit@5 baseline, and completed acceptance |
 | `17-milestone-7-implementation-plan.md` | Local MCP host, shared retrieval, authoritative note reads, and verification evidence |
-| `18-milestone-8-implementation-plan.md` | Planned hardening audit, deterministic rebuild validation, and final POC acceptance gates |
+| `18-milestone-8-implementation-plan.md` | Completed hardening audit, deterministic rebuild validation, and formal POC closure evidence |
+| `19-answer-quality-agent-evaluation-plan.md` | Designed 20-question Codex tool/answer evaluation and next-improvement decision gate |
 | `adr/` | Architecture Decision Records |
 
 ## Initial technology baseline
@@ -55,7 +60,7 @@ The documentation in this package reflects the decisions reached during architec
 - 384-dimensional dense vectors
 - Cosine similarity
 - Dense semantic search for the initial POC
-- Hybrid dense + sparse retrieval planned after baseline evaluation
+- Answer-quality/agent evaluation next; hybrid dense + sparse retrieval conditional on evidence
 - MCP as the AI-facing retrieval boundary
 
 ## Proposed repository layout

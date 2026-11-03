@@ -2,11 +2,15 @@
 
 ## 1. Status and objective
 
-Status: in progress on 2026-10-29; the asset-free baseline and one
-failure-safety fix are complete. Live Qdrant/ONNX acceptance is pending.
-The new managed worktree was created before this plan, from revision
-`c142c50c1dd06fcf6c0abd282990b5b598893ee3`, on branch
-`codex/milestone-8-hardening`.
+Status: **complete; POC formally closed on 2026-10-30.** The final requirements
+mapping, executed checks, accepted limitations, and closure decision are in
+[section 7](#7-final-verification-and-poc-closure). Sections 2–6 retain the
+original audit plan and dated intermediate evidence.
+
+This closure was completed in a new managed worktree at base revision
+`7245ccd` (including the earlier hardening PR #19). The original plan began in
+`codex/milestone-8-hardening` from `c142c50`; those are historical identifiers,
+not this final acceptance tree.
 
 Complete Milestone 8 from [the roadmap](05-implementation-plan.md): error
 handling, path traversal protection, exclusion rules, privacy-safe logging,
@@ -89,8 +93,8 @@ first run exposed stale fixture assumptions: generated configuration hard-coded
 a specific note in the default top two despite several near-identical fixtures.
 The fixture now serializes its configured limit and explicitly requests 50 for
 that recovery assertion. The rerun passed. The ignored local config and private
-evaluation files remain absent. Asset digests have not yet been checked for this
-milestone.
+evaluation files remain absent. Asset digests had not yet been checked at that historical checkpoint;
+all seven were verified during final acceptance.
 
 ### 3.1 Implemented finding
 
@@ -117,10 +121,10 @@ after storage writes succeed.
 The live suites use their disposable collections and cleanup. They exercise
 real indexing/rebuild, no-op retry, deletion, MCP stdio parity, full indexed
 state snapshots, current note reads, retry after a collection appears, and note
-availability when Qdrant is unavailable. The broader Milestone 8 deterministic
-multi-corpus rebuild matrix, filesystem/fault-injection audit, and final Release
-acceptance run remain open; these passes alone do not close Milestone 8 or the
-POC.
+availability when Qdrant is unavailable. At that checkpoint, the broader deterministic rebuild matrix,
+filesystem/fault-injection audit, and final Release acceptance remained open.
+Section 7 records their subsequent closure; these historical passes alone did
+not close the POC.
 
 ## 4. Implementation sequence
 
@@ -313,3 +317,214 @@ Milestone 8 and the POC may be marked complete only when:
 Unavailable assets, Qdrant, or missing required evidence leave the corresponding
 gate pending. Unit tests alone do not close live acceptance. Record any remaining
 implementation issue explicitly rather than expanding into a later milestone.
+
+## 7. Final verification and POC closure
+
+**Decision: Milestone 8 is complete and the POC is formally closed on
+2026-10-30.** All required POC acceptance criteria are demonstrated. There are
+no outstanding required POC implementation or acceptance gates. The next work
+is the designed, unexecuted [Milestone 9 answer-quality/agent evaluation](19-answer-quality-agent-evaluation-plan.md).
+Hybrid retrieval is conditional on that evidence.
+
+### 7.1 Acceptance environment and reproducibility
+
+Executed from base `7245ccd` plus this closure's source/test changes, on macOS
+27.2 arm64, .NET SDK `10.0.402`, runtime `10.0.13`, ONNX Runtime package
+`1.31.1`, Qdrant server/client `1.20.0`, and MCP SDK `2.3.0`. No `KNOWLEDGE_`
+overrides were present. The healthy shared Compose service remained bound only
+to `127.0.0.1:6334`; it was neither stopped nor reconfigured.
+
+The acceptance source/test fingerprint is
+`c0760f714d2c036b85f48acd7b292297ee2871a19d96c207dac7d96d3304d498`.
+Reproduce by sorting the tracked `src/` and `tests/` paths plus the new
+`tests/Knowledge.Indexing.IntegrationTests/HardeningAcceptanceTests.cs`, retaining
+`.cs`, `.csproj`, and `.json` files, then hashing each UTF-8 relative path,
+NUL, raw file bytes, NUL in order with SHA-256. Documentation is excluded from
+this fingerprint. The base revision alone does not identify the acceptance tree.
+
+All seven asset digests matched `models/bge-small-en-v1.5/asset-manifest.json`.
+The ONNX weights were reused through an ignored worktree symlink to the primary
+checkout; no model was downloaded, copied into Git, or sent to a remote service.
+The ignored link remains a local test prerequisite. Tests used synthetic
+temporary vaults and unique disposable collections; their cleanup passed. The
+new hardening test explicitly verified its collection was absent after cleanup.
+The temporary baseline-audit utility was removed. No real vault notes or
+existing user collections were mutated.
+
+| Final command | Exit/result on 2026-10-30 |
+|---|---|
+| `dotnet restore Knowledge.sln` | 0 |
+| `dotnet build Knowledge.sln --configuration Release --no-restore` | 0; zero warnings/errors |
+| `dotnet test Knowledge.sln --configuration Release --no-build --no-restore` | 0; 194/194: Indexer 161, Embeddings 8, MCP 25; zero skipped |
+| `dotnet test tests/Knowledge.Embeddings.IntegrationTests/Knowledge.Embeddings.IntegrationTests.csproj --configuration Release --no-restore` | 0; 6/6; zero skipped |
+| `dotnet test tests/Knowledge.Indexing.IntegrationTests/Knowledge.Indexing.IntegrationTests.csproj --configuration Release --no-restore` | 0; 5/5; zero skipped |
+| `dotnet test tests/Knowledge.Mcp.IntegrationTests/Knowledge.Mcp.IntegrationTests.csproj --configuration Release` | 0; 1/1; zero skipped |
+
+The explicit integration projects were restored on their first invocation.
+Sandboxed .NET execution could not create required local IPC sockets, so final
+builds/tests ran with approved host access. This was an execution-environment
+constraint, not a passing test or product defect. No audit checks were disabled.
+
+### 7.2 Audit findings and resolved gaps
+
+| Gap/finding | Resolution and executed evidence |
+|---|---|
+| Uncertain non-RPC writes allowed subsequent stale cleanup | Prior PR #19 fix retained; `Unconfirmed_document_write_prevents_stale_document_cleanup`, partial-write and verification failure regressions pass |
+| File/directory aliases bypassed target exclusions; an early excluded directory alias hid canonical eligible files | Apply both logical and physical include/exclude policy and track active directory ancestry; `Internal_aliases_cannot_bypass_target_eligibility_or_hide_canonical_notes` and reader alias path/ID regression pass |
+| A file link's target introduced another linked ancestor, allowing containment/exclusion bypass | Walk all target path components after each link, bound resolution to 64 links, and repeat at read time; `File_link_targets_with_linked_ancestors_cannot_bypass_containment_or_exclusions` passes for excluded and external targets |
+| Containment assumed macOS/Windows always ignore path case | Use conservative ordinal containment; probe confirmed this workstation's temporary filesystem is case-insensitive. Canonical reader case tests pass; other filesystem/platform execution is not claimed |
+| Incompatible scalar settings escaped as raw exceptions from `chunks`, `embeddings`, and `index` | Safe CLI configuration catches return 2; `Incompatible_configuration_values_fail_safely_before_runtime_composition` passes for all seven commands with private-value/query sentinels |
+| Rebuild evidence compared only selected metadata/results | New real ONNX/Qdrant test compares every point ID, complete semantic payload, and every vector component for two chunking configurations, two repeated rebuilds, and actual CLI restore after external test-collection deletion |
+| Failure/mutation ordering and retry coverage incomplete | RPC-stage matrix, partial writes, cancelled partial writes, malformed YAML/fences/UTF-8, read-time redirection, discovery failure, and zero-storage-call preflight checks now pass |
+| Unreadable root/subtree behavior not executed in earlier milestones | Disposable Unix permission smoke established actual permission denial before invoking Release `chunks`; root and nested-directory scans both returned 1 with safe `scan-failed` diagnostics. Shared discovery failure tests separately assert zero storage calls |
+
+No embedding input formatter, model, tokenizer, normalization, chunking, index
+profile, or schema changed. The eligibility fix affects only aliases that did
+not satisfy the intended policy. A read-only audit using the current
+`RetrievalBenchmarkSourceValidator.ValidateSources` validated all 24 approved
+benchmark questions against 424 currently eligible candidate sources and found
+zero descendant symlinks in the configured real vault. A separate read-only
+comparison against the base revision's actual discovery implementation returned
+the identical ordered set of 424 candidate paths. Therefore these link fixes
+do not change that vault's retrieval inputs. This was an eligibility
+audit, not a new retrieval run: the reviewed 22/24 result remains the historical
+2026-10-24 baseline on its recorded versions and snapshot.
+
+### 7.3 Evidence catalog
+
+All current test references below passed in the final 2026-10-30 Release run
+identified in 7.1. Historical evidence has its own recorded date/revision.
+
+- **E1 — ingestion:** `IngestionTests`, particularly frontmatter/heading/link
+  extraction, structured blocks, deterministic IDs, long prose, exclusions,
+  malformed fences, external links/cycles, alias policy, and linked ancestors.
+- **E2 — indexing and failure safety:** `IndexingTests`, including no-op/hash
+  checks, profile/schema mutation gates, malformed replacements, stage-specific
+  RPC failures, uncertain/partial writes, cancellation, read-time containment,
+  missing vault, failed discovery, preflight retention, and later repair.
+- **E3 — configuration and CLI:** `ConfigurationTests`, `CliTests`,
+  `SearchTests`, `QdrantSearchTests`, and `RetrievalBenchmarkTests`. These assert
+  safe invalid configuration, local-only settings, filters, provenance, safe
+  failure channels at all supported log levels, metadata-only reports, and
+  cancellation/report preservation.
+- **E4 — embeddings:** tokenizer/formatter/query unit tests and all six real
+  `OnnxEmbeddingTests`: pinned assets, token limits, reference token IDs/vectors,
+  query instruction, repeatability, normalization, sample-vault inputs, and
+  cancellation/session reuse.
+- **E5 — live storage/rebuild:** all five `LocalIndexingTests`, including
+  `Repeated_rebuilds_and_cli_restore_preserve_complete_payloads_vectors_and_sources`
+  in `HardeningAcceptanceTests.cs` (two cases). Full snapshots scroll every
+  point, compare map values independent of ordering, and assert finite
+  384-dimensional vectors within `1e-5`; unchanged state is exact. Source bytes
+  and mtimes are fixed for rebuild comparisons. A single-result filtered query
+  avoids cutoff ties; score tolerance is `1e-5`. The test also covers changed
+  neighbors, rename delete/add, deletion/exclusion/opt-out, no-op convergence,
+  retained state on failed preflight/bad assets, and exit 130 for every CLI
+  command with unchanged full point snapshots.
+- **E6 — MCP:** `MarkdownNoteReaderTests`, `KnowledgeMcpToolsTests`, and the live
+  `McpServerIntegrationTests`: canonical selectors, current note reads,
+  eligibility, path/ID parity, only two read-only tools, protocol-only stdout,
+  safe errors, CLI equivalence, filters/vault isolation, full payload/vector
+  and source read-only snapshots, and independent note availability/retry.
+- **E7 — real-vault retrieval and client acceptance:** retained
+  [Milestone 3](12-milestone-3-implementation-plan.md) real-vault two-pass
+  indexing (402 unchanged documents, zero embedding calls/chunk writes),
+  [Milestone 6 baseline](../eval/dense-baseline.md) at revision `a456098` plus its
+  recorded patch on 2026-10-24 (24 questions, 22 hits, owner review), and
+  [Milestone 7 section 9.6](17-milestone-7-implementation-plan.md#96-verification-and-acceptance-closure)
+  on 2026-10-25 (Codex CLI stdio client acceptance). No launch/protocol changes
+  required repeating that manual client smoke.
+- **E8 — local boundary/manual checks:** all seven manifest digests, loopback
+  Compose inspection, temporary-filesystem casing probe, confirmed unreadable
+  root/subtree smoke, and read-only real-vault benchmark eligibility audit above.
+  These are executed local observations, not portable automated assertions.
+
+### 7.4 Functional and nonfunctional requirement audit
+
+Grouped rows name every requirement explicitly. No roadmap feature substitutes
+for demonstrated implemented behavior.
+
+| Requirement | Passing evidence and assertion |
+|---|---|
+| FR-001 discovery | E1 recursive fixtures; E2 complete-discovery gate; E8 permission failures |
+| FR-002 include/exclude | E1 exclude-wins and alias-target fixtures; E5 excluded transition |
+| FR-003 opt-out | E1 frontmatter; E5 indexed-to-opted-out removal; E6 current note eligibility |
+| FR-004 frontmatter | E1 tags/aliases/control extraction; E5 stored aliases |
+| FR-005 Markdown structure | E1 nested headings, prose, lists, quotes, tables, code, inline identifiers; E5 representative corpus |
+| FR-006 wikilinks | E1 target/display extraction; E5 original and normalized payloads |
+| FR-007 chunking | E1 long prose/structure; E5 two multi-chunk configurations |
+| FR-008 token limit | E4 exact tokenizer and 512/513-token checks before inference |
+| FR-009 embedding context | E4 canonical title/heading/tag/content formatter assertion |
+| FR-010 local embeddings | E4 real pinned ONNX inference; E8 asset digests |
+| FR-011 Qdrant vectors | E5 real collection layout, 384 finite cosine vectors, and incompatible-layout recreation checks |
+| FR-012 provenance metadata | E5 complete payload equality and search fields; E6 full point snapshots |
+| FR-013 document identity | E1/E2 deterministic IDs; E5 repeated rebuild and rename identities |
+| FR-014 chunk identity | E1/E2 deterministic chunks/point mapping; E5 all point/chunk IDs |
+| FR-015 file hashes | E2 timestamp-only no-op and same-timestamp byte-change detection; E5 source hashes |
+| FR-016 skip unchanged | E2 no embedding/upsert; E5 exact full-state no-op; E7 real-vault second pass |
+| FR-017 replace changed | E2 delete-before-parse failure/retry; E5 changed source with neighbor equality |
+| FR-018 remove stale | E2 stale deletion; E5 deleted/excluded/opted-out paths absent from points and search |
+| FR-019 rebuild | E5 two repeated rebuilds and actual CLI restore after deletion |
+| FR-020 status | E3 safe unavailable state without model assets; E5 vault-scoped paginated counts and malformed identity |
+| FR-021 CLI search | E3 complete CLI provenance; E5 successful restored search; E7 real benchmark |
+| FR-022 MCP search | E6 stdio tool discovery/invocation and live search |
+| FR-023 MCP note retrieval | E6 current path/ID reads, unavailable assets/service independence |
+| FR-024 filters | E3 AND tags/vault/path/limits; E6 actual CLI/MCP explicit/default parity |
+| FR-025 search provenance | E3 path/title/heading/Markdown/score output; E5/E6 live assertions |
+| NFR-001 local-first | E4/E5 local ONNX/Qdrant; E6 local stdio; E8 loopback service |
+| NFR-002 no embedding egress | Local-only provider validation in E3; E4 pinned inference; no remote fallback/download path |
+| NFR-003 rebuildability | E5 deleted collection restored from unchanged source hashes |
+| NFR-004 determinism | E5 complete IDs/content/payload equality, vectors within `1e-5`, fixed source mtimes |
+| NFR-005 private logging | E2/E3 synthetic parser/configuration/exception/query sentinels; E6 MCP errors/protocol; reports omit bodies/queries |
+| NFR-006 failure transparency | E2 failed path and safe diagnostic codes, non-complete results; E3/E5 CLI exits and retries |
+| NFR-007 configurability | E3 typed YAML/environment precedence/ranges; E5 two chunk configurations |
+| NFR-008 embedding abstraction | Core's `IEmbeddingService` has no infrastructure dependency; E2 fakes and E4 ONNX implement the same contract |
+| NFR-009 retrieval abstraction | MCP composes shared retrieval through `IKnowledgeRetriever`; E3 injected retriever and E6 live parity |
+
+### 7.5 POC acceptance and hardening objective audit
+
+| Criterion | Accepted evidence |
+|---|---|
+| AC-001 initial indexing | E5 creates/indexes representative eligible notes; E7 real-vault indexing |
+| AC-002 incremental no-op | E5 zero calls/writes and exact state; E7 real-vault no-op |
+| AC-003 change handling | E2 replacement/retry and E5 unchanged neighbor equality |
+| AC-004 deletion handling | E5 deletion, exclusion, opt-out, and empty search after removal |
+| AC-005 rebuild | E5 actual `KnowledgeCli.RunAsync` rebuild after disposable collection deletion restores full state/search |
+| AC-006 semantic search | E7 reviewed conceptual 4/4, paraphrased 2/3; E5 synthetic paraphrased search |
+| AC-007 technical terms | E7 reviewed exact identifiers 4/4 and acronyms 3/3; no lexical-superiority claim |
+| AC-008 provenance | E3/E5/E6 full path, title, heading, IDs, original Markdown and score |
+| AC-009 MCP equivalence | E6 current live actual CLI/shared retriever/MCP parity; E7 intended client |
+| AC-010 benchmark | E7 24 verified questions, owner-reviewed 22/24 Hit@5 (91.7%) |
+
+| Milestone 8 objective | Accepted evidence |
+|---|---|
+| Error handling | E2 fault stages, incomplete writes, retry; E3 safe CLI exit mapping |
+| Path traversal protection | E1/E6 canonical selectors and direct/indirect external link rejection |
+| Exclusion rules | E1/E5/E6 logical and physical policy, opt-out, removed-result transitions |
+| Privacy-safe logging | E2/E3/E6 sentinels and safe operational channels; E8 local boundary |
+| Configuration validation | E3 all seven CLI invalid-scalar paths, typed validation before runtime; E5 bad assets retain full state |
+| Qdrant unavailability | E2 injected RPC stages; E3 bounded unreachable status; E6 live unreachable endpoint, surviving note reads and retry |
+| Malformed notes | E1/E2 YAML, unclosed fences, invalid UTF-8, safe neighbor continuation, repair |
+| Deterministic rebuild | E5 two configurations, complete state comparisons, CLI restore, source preservation |
+
+### 7.6 Accepted limits and operating handoff
+
+This closes the local single-owner dense-retrieval POC, not a production service
+or an agent answer-quality claim. Platform execution here is macOS arm64 on a
+case-insensitive filesystem; no Windows, Linux, or case-sensitive-volume live
+execution is claimed by this closure. Containment is conservative but not atomic
+under concurrent filesystem swaps. Eligible internal aliases can still produce
+multiple logical identities; deduplication remains deferred.
+
+Document replacement and whole-collection rebuild remain nontransactional as
+ADR-009 specifies. After an interruption, rerun `index` to repair incomplete
+documents, or explicitly `rebuild` a dedicated collection. Rebuild removes every
+vault ID in the selected collection. Missing assets, unavailable Qdrant, invalid
+profiles, refresh after edits, and alias-policy upgrades are covered in the
+[README operating procedure](../README.md#recovery-and-refresh).
+
+The retained relevance baseline is a small, reviewed retrieval sample, not an
+answer-quality score, broad quality guarantee, or SLA. Watching, hybrid/reranking,
+graph expansion, remote/multi-user deployment, authentication, attachment
+indexing, and write-back remain outside implemented POC scope. Milestone 9 will
+measure answers/tool use before a next-improvement decision.
