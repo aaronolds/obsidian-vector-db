@@ -62,6 +62,7 @@ public sealed record NoteMetadata(string Title, bool OptedOut);
 
 public sealed class MarkdownIngestor
 {
+    private const int MaxDirectoryAliasExpansions = 1024;
     private static readonly Regex WikiLinkRegex = new(@"\[\[([^\]|#]+?)(?:\|([^\]]+))?\]\]", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     private readonly ITokenCounter _tokens;
 
@@ -84,6 +85,8 @@ public sealed class MarkdownIngestor
         // Track the active ancestry, not every visited target: an excluded alias
         // must not suppress a later eligible canonical path to the same directory.
         var visited = new HashSet<string>(StringComparer.Ordinal);
+        var aliasExpansions = 0;
+        var aliasExpansionLimitReported = false;
         var complete = true;
         try
         {
@@ -104,7 +107,22 @@ public sealed class MarkdownIngestor
             cancellationToken.ThrowIfCancellationRequested();
             var physical = ResolveDirectory(directory);
             if (!IsInside(resolvedRoot, physical)) return;
-            if (!visited.Add(Path.GetFullPath(physical.FullName))) return;
+            var physicalRelative = NormalizePath(Path.GetRelativePath(root, physical.FullName));
+            var isAlias = !string.Equals(relativeDirectory, physicalRelative == "." ? "" : physicalRelative, StringComparison.Ordinal);
+            var physicalPath = Path.GetFullPath(physical.FullName);
+            if (!visited.Add(physicalPath)) return;
+            if (isAlias && aliasExpansions >= MaxDirectoryAliasExpansions)
+            {
+                complete = false;
+                if (!aliasExpansionLimitReported)
+                {
+                    diagnostics.Add(new IngestionDiagnostic(relativeDirectory, "alias-expansion-limited", "Directory alias expansion exceeded the safe discovery limit."));
+                    aliasExpansionLimitReported = true;
+                }
+                visited.Remove(physicalPath);
+                return;
+            }
+            if (isAlias) aliasExpansions++;
 
             FileSystemInfo[] children;
             try { children = physical.GetFileSystemInfos(); }
@@ -112,7 +130,7 @@ public sealed class MarkdownIngestor
             {
                 diagnostics.Add(new IngestionDiagnostic(relativeDirectory, "scan-failed", "A vault directory could not be enumerated."));
                 complete = false;
-                visited.Remove(Path.GetFullPath(physical.FullName));
+                visited.Remove(physicalPath);
                 return;
             }
 
@@ -141,7 +159,7 @@ public sealed class MarkdownIngestor
                 if (!MatchesAny(targetRelative, options.Include) || MatchesAny(targetRelative, options.Exclude)) continue;
                 files.Add(new VaultFile(resolved.FullName, relative, root));
             }
-            visited.Remove(Path.GetFullPath(physical.FullName));
+            visited.Remove(physicalPath);
         }
     }
 

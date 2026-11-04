@@ -113,6 +113,29 @@ public sealed class IngestionTests
     }
 
     [Fact]
+    public void Directory_alias_expansion_is_bounded_without_hiding_canonical_notes()
+    {
+        using var vault = new TemporaryVault();
+        var current = "";
+        for (var level = 0; level < 12; level++)
+        {
+            var parent = Path.Combine(vault.Path, current);
+            var child = Path.Combine(parent, $"Level{level:D2}");
+            Directory.CreateDirectory(child);
+            Directory.CreateSymbolicLink(Path.Combine(parent, $"ZAlias{level:D2}"), child);
+            current = Path.Combine(current, $"Level{level:D2}");
+        }
+        vault.Write(Path.Combine(current, "Visible.md"), "Eligible canonical note.");
+
+        var scan = new MarkdownIngestor().Discover(new MarkdownIngestionOptions(
+            "primary", vault.Path, ["**/*.md"], [], "ai-index", 300, 400, 40));
+
+        Assert.False(scan.IsComplete);
+        Assert.Contains(scan.Files, file => file.RelativePath == Path.Combine(current, "Visible.md").Replace(Path.DirectorySeparatorChar, '/'));
+        Assert.Contains(scan.Diagnostics, diagnostic => diagnostic.Code == "alias-expansion-limited");
+    }
+
+    [Fact]
     public void File_link_targets_with_linked_ancestors_cannot_bypass_containment_or_exclusions()
     {
         using var vault = new TemporaryVault();
