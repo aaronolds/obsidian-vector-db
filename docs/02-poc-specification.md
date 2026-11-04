@@ -4,6 +4,11 @@
 
 This specification defines the initial proof of concept for the Obsidian Knowledge Platform.
 
+Acceptance status: **Complete on 2026-10-30.** All FR, NFR, and AC requirements
+are mapped to executed or retained historical evidence in the
+[Milestone 8 closure report](18-milestone-8-implementation-plan.md#7-final-verification-and-poc-closure).
+The 22/24 Hit@5 result measures retrieval; agent answer quality remains future work.
+
 ## 2. POC objective
 
 Demonstrate that an Obsidian Markdown vault can be indexed locally into Qdrant and queried semantically through both a CLI and MCP with useful provenance and measurable retrieval quality.

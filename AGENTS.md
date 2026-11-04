@@ -4,7 +4,7 @@
 
 This is a local-first .NET 10 knowledge platform for Obsidian vaults. Markdown
 files are the source of truth; Qdrant is intended to be rebuildable derived
-state. Milestones 1–7 are implemented: configuration and expanded status,
+state. Milestones 1–8 and the POC are complete (2026-10-30): configuration and expanded status,
 Markdown ingestion/chunk inspection, local BGE-small embeddings,
 document-level incremental indexing in local Qdrant, dense CLI retrieval with
 optional filters, explicit collection rebuild, local Hit@5 evaluation, and a
@@ -12,8 +12,14 @@ stdio MCP host with read-only search/note tools. Milestone 3 live Qdrant/ONNX
 validation and the real-vault two-pass check passed; the unchanged second pass
 performed zero embedding calls and zero chunk writes. Milestone 6's real-vault
 benchmark and owner relevance review are complete (22/24 Hit@5). Milestone 7's
-live MCP equivalence and Codex CLI client checks passed on 2026-10-25. Watching
-is deferred.
+live MCP equivalence and Codex CLI client checks passed on 2026-10-25.
+Milestone 8 closed with 194 Release unit tests and 6 embedding, 5 indexing,
+and 1 MCP integration tests passing. It hardened alias/target eligibility,
+recursive symlink containment, and safe CLI configuration errors, and verified
+complete deterministic rebuild payload/vector state. See docs/18 for evidence.
+Milestone 9 is a designed, unexecuted 20-question answer-quality/agent evaluation
+using Codex with search_knowledge and get_note; hybrid retrieval is conditional
+on diagnosed failures. Watching is deferred.
 Do not treat roadmap items as existing behavior.
 
 Read the relevant architecture and decisions in `docs/` before changing
@@ -144,7 +150,7 @@ over local stdio. Search requires pinned local inference assets and an existing
 compatible collection; note reads use current eligible Markdown and do not need
 Qdrant or model assets. Configure an MCP client to launch the built
 `Knowledge.Mcp.dll` with an absolute `--config` path. See
-`docs/17-milestone-7-implementation-plan.md` for contracts and pending live
+`docs/17-milestone-7-implementation-plan.md` for contracts and completed live
 acceptance evidence.
 
 `rebuild` requires pinned local assets, completes vault discovery, and checks all

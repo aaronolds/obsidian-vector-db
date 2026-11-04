@@ -20,6 +20,13 @@ The architecture must preserve a path to:
 
 Hybrid search is evaluated after the dense benchmark is recorded.
 
+Sequencing clarification on 2026-10-30: the recorded 22/24 retrieval baseline
+precedes a 20-question answer-quality/agent evaluation using the existing MCP
+tools. Hybrid remains conditional on diagnosed retrieval failures and an
+explicit comparison with competing improvements; see
+[Milestone 9](../19-answer-quality-agent-evaluation-plan.md). The dense-first
+decision and stable MCP boundary remain unchanged.
+
 ## Consequences
 
 - Faster POC implementation.

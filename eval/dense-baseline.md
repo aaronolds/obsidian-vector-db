@@ -56,7 +56,9 @@ retrieved Markdown excerpts and remains ignored. The vault owner confirmed that 
 that the sampled successful passages support the relevance summary on
 2026-10-24.
 
-Recommendation: retain this dense configuration as the measured baseline. In a
-later retrieval milestone, compare a sparse/hybrid candidate against this same
+Recommendation: retain this dense configuration as the measured baseline. First
+execute the [answer-quality/agent evaluation](../docs/19-answer-quality-agent-evaluation-plan.md).
+If diagnosed failures justify a retrieval experiment, compare a sparse/hybrid
+candidate against this same
 frozen benchmark and review whether it improves the two misses without harming
 identifier and code-oriented cases. No retrieval changes are part of Milestone 6.

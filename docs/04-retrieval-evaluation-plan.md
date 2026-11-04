@@ -126,7 +126,10 @@ Record:
 
 ## 8. Hybrid evaluation
 
-Hybrid retrieval should be introduced only after the dense baseline is recorded.
+The dense baseline is recorded, but hybrid is not the automatic next change.
+First execute [Milestone 9 answer-quality/agent evaluation](19-answer-quality-agent-evaluation-plan.md)
+to distinguish retrieval misses from context selection and answer synthesis.
+Introduce a hybrid experiment only when that evidence justifies it.
 
 Then rerun the exact same benchmark.
 

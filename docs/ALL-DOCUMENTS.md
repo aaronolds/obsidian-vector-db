@@ -12,7 +12,11 @@ The initial objective is deliberately narrow:
 
 ## Status
 
-Architecture baseline: **Approved for POC implementation**
+POC: **Complete and formally closed on 2026-10-30.**
+See [Milestone 8 closure evidence](18-milestone-8-implementation-plan.md#7-final-verification-and-poc-closure).
+The dense baseline is 22/24 Hit@5. The next step is the designed, unexecuted
+[Milestone 9 answer-quality/agent evaluation](19-answer-quality-agent-evaluation-plan.md);
+hybrid retrieval remains an evidence-gated candidate.
 
 The documentation in this package reflects the decisions reached during architecture discussions and resolves remaining ambiguities with recommended defaults.
 
@@ -38,6 +42,15 @@ The documentation in this package reflects the decisions reached during architec
 | `06-security-and-privacy.md` | Local-first security boundary and privacy requirements |
 | `07-configuration-reference.md` | Proposed configuration model |
 | `08-open-questions-and-assumptions.md` | Ambiguities, defaults, and deferred decisions |
+| `11-milestone-2-implementation-plan.md` | Local embedding implementation sequence and verification gates |
+| `12-milestone-3-implementation-plan.md` | Qdrant indexing implementation sequence, incremental-state rules, and verification gates |
+| `13-milestone-4-implementation-plan.md` | Dense CLI retrieval implementation, query formatting, filters, and verification evidence |
+| `14-github-automation.md` | Build/audit workflows, dependency maintenance, and manual branch-protection/Copilot review activation |
+| `15-milestone-5-implementation-plan.md` | Explicit collection rebuild, vault-scoped status, and verification evidence |
+| `16-milestone-6-implementation-plan.md` | Evaluator behavior, reviewed 22/24 real-vault Hit@5 baseline, and completed acceptance |
+| `17-milestone-7-implementation-plan.md` | Local MCP host, shared retrieval, authoritative note reads, and verification evidence |
+| `18-milestone-8-implementation-plan.md` | Completed hardening audit, deterministic rebuild validation, and formal POC closure evidence |
+| `19-answer-quality-agent-evaluation-plan.md` | Designed 20-question Codex tool/answer evaluation and next-improvement decision gate |
 | `adr/` | Architecture Decision Records |
 
 ## Initial technology baseline
@@ -49,7 +62,7 @@ The documentation in this package reflects the decisions reached during architec
 - 384-dimensional dense vectors
 - Cosine similarity
 - Dense semantic search for the initial POC
-- Hybrid dense + sparse retrieval planned after baseline evaluation
+- Answer-quality/agent evaluation next; hybrid dense + sparse retrieval conditional on evidence
 - MCP as the AI-facing retrieval boundary
 
 ## Proposed repository layout
@@ -61,6 +74,7 @@ obsidian-knowledge-platform/
 │   ├── Knowledge.Markdown/
 │   ├── Knowledge.Embeddings/
 │   ├── Knowledge.Qdrant/
+│   ├── Knowledge.Runtime/
 │   ├── Knowledge.Indexer/
 │   └── Knowledge.Mcp/
 ├── tests/
@@ -78,6 +92,12 @@ obsidian-knowledge-platform/
 └── knowledge.yaml
 ```
 
+Milestone 7 implements `Knowledge.Mcp` as a local stdio executable. It exposes
+read-only `search_knowledge` over the shared dense retriever and `get_note` over
+current eligible Markdown. Unit and live protocol coverage pass; live Qdrant/ONNX
+search equivalence and the Codex CLI client check completed on 2026-10-25. See
+[the Milestone 7 implementation plan](17-milestone-7-implementation-plan.md).
+
 ## POC definition of done
 
 The POC is complete when:
@@ -90,7 +110,6 @@ The POC is complete when:
 6. The same retrieval capability is exposed through MCP.
 7. A benchmark set demonstrates that expected notes appear in the top five results at an agreed baseline rate.
 8. The entire Qdrant collection can be deleted and rebuilt from Markdown without loss of authoritative knowledge.
-
 
 <!-- SOURCE: 01-solution-architecture.md -->
 
@@ -294,8 +313,8 @@ sequenceDiagram
         I->>I: Skip document
     else new or changed
         I->>V: Read Markdown
-        I->>I: Parse + normalize + chunk
         I->>Q: Delete existing document chunks
+        I->>I: Parse + normalize + chunk
         loop each chunk
             I->>E: Embed constructed embedding text
             E-->>I: 384-d vector
@@ -345,8 +364,8 @@ knowledge rebuild
 
 Rebuild semantics:
 
-1. Delete or recreate the Qdrant collection.
-2. Re-read all included Markdown.
+1. Validate pinned local assets, complete discovery, and check candidate reads.
+2. Delete/recreate the collection and re-read all eligible Markdown.
 3. Recreate all chunks.
 4. Regenerate all embeddings.
 5. End with a functionally equivalent retrieval index.
@@ -490,7 +509,9 @@ ranked results
 
 ### 14.2 Target evolution
 
-Hybrid retrieval is the intended next-stage architecture:
+The next stage measures answer quality and agent tool use; see
+[Milestone 9](19-answer-quality-agent-evaluation-plan.md). Hybrid retrieval is a
+candidate only if diagnosed failures justify it. Its possible architecture is:
 
 ```text
              Query
@@ -629,7 +650,6 @@ None of those are required to prove the POC.
 
 See `adr/` for decision rationale.
 
-
 <!-- SOURCE: 02-poc-specification.md -->
 
 # POC Specification
@@ -637,6 +657,11 @@ See `adr/` for decision rationale.
 ## 1. Purpose
 
 This specification defines the initial proof of concept for the Obsidian Knowledge Platform.
+
+Acceptance status: **Complete on 2026-10-30.** All FR, NFR, and AC requirements
+are mapped to executed or retained historical evidence in the
+[Milestone 8 closure report](18-milestone-8-implementation-plan.md#7-final-verification-and-poc-closure).
+The 22/24 Hit@5 result measures retrieval; agent answer quality remains future work.
 
 ## 2. POC objective
 
@@ -937,7 +962,6 @@ This target is a recommended initial threshold, not a contractual production SLA
 
 The POC is done when all acceptance criteria are demonstrated and benchmark results are recorded.
 
-
 <!-- SOURCE: 03-domain-and-data-contracts.md -->
 
 # Domain and Data Contracts
@@ -1226,15 +1250,45 @@ Request:
 }
 ```
 
-Recommended behavior:
+Inputs: exactly one of `path` or `documentId`. A path is a canonical
+vault-relative Markdown path using `/`; a document ID is the canonical
+`sha256:` identity of a discovered note.
+
+Successful result:
+
+```json
+{
+  "found": true,
+  "note": {
+    "documentId": "sha256:...",
+    "path": "Architecture/Azure Authentication.md",
+    "title": "Azure Authentication",
+    "contentMarkdown": "---\\ntags: [azure]\\n---\\n# Azure Authentication\\n...",
+    "fileHash": "sha256:...",
+    "modifiedUtc": "2026-10-23T12:00:00Z"
+  }
+}
+```
+
+Not found result:
+
+```json
+{ "found": false, "note": null }
+```
+
+Behavior:
 
 - Resolve only inside the configured vault.
 - Read the current authoritative Markdown file, not reconstructed Qdrant chunks.
 - Reject traversal such as `../`.
 - Return a not-found result if the note no longer exists.
+- Apply configured discovery include/exclude rules and the frontmatter opt-out
+  field; opted-out or excluded notes are unavailable by either selector.
+- Return the full current Markdown snapshot, including frontmatter, rather than
+  reconstructing content from Qdrant.
+- Include provenance and the file-content hash for the returned snapshot.
 
 This preserves the distinction between search index and authoritative content.
-
 
 <!-- SOURCE: 04-retrieval-evaluation-plan.md -->
 
@@ -1366,7 +1420,10 @@ Record:
 
 ## 8. Hybrid evaluation
 
-Hybrid retrieval should be introduced only after the dense baseline is recorded.
+The dense baseline is recorded, but hybrid is not the automatic next change.
+First execute [Milestone 9 answer-quality/agent evaluation](19-answer-quality-agent-evaluation-plan.md)
+to distinguish retrieval misses from context selection and answer synthesis.
+Introduce a hybrid experiment only when that evidence justifies it.
 
 Then rerun the exact same benchmark.
 
@@ -1426,7 +1483,6 @@ Create a short result report with:
 - recommended next retrieval improvement
 
 The POC should not hide failure cases. They are input to the next retrieval iteration.
-
 
 <!-- SOURCE: 05-implementation-plan.md -->
 
@@ -1561,6 +1617,12 @@ can index a real vault and a second unchanged run performs no embedding work.
 
 ## 6. Milestone 4: Dense CLI retrieval
 
+Implementation status: complete on 2026-10-22; see the detailed
+[Milestone 4 implementation plan](13-milestone-4-implementation-plan.md) for
+verification evidence and the real-vault smoke-test limitation.
+
+Detailed plan: [13-milestone-4-implementation-plan.md](13-milestone-4-implementation-plan.md).
+
 ### Objectives
 
 - Implement `IKnowledgeRetriever`.
@@ -1583,6 +1645,10 @@ This milestone should happen before MCP so retrieval can be debugged independent
 
 ## 7. Milestone 5: Rebuild and operational commands
 
+Implementation status: implemented on 2026-10-22. See
+[Milestone 5 implementation plan](15-milestone-5-implementation-plan.md) for the
+behavior, test results, and live acceptance evidence.
+
 ### Commands
 
 ```bash
@@ -1592,8 +1658,9 @@ knowledge status
 
 ### `rebuild`
 
-- recreate collection
-- index all eligible content
+- validate local runtime assets and complete vault/source-read preflight
+- delete and recreate the configured collection
+- index all eligible content, including unchanged source
 
 ### `status`
 
@@ -1607,6 +1674,12 @@ Report:
 - document count
 - chunk count
 
+Counts are scoped to the configured vault ID. Status does not load ONNX assets or
+modify the collection; unavailable or malformed count reads report unavailable
+counts rather than successful zeros. Rebuild removes all points in the configured
+collection, including data for any other vault ID. Operators must use a dedicated
+collection; a failure after recreation can leave partial derived state.
+
 ### Exit criteria
 
 Deleting the collection and rebuilding restores usable search.
@@ -1614,6 +1687,16 @@ Deleting the collection and rebuilding restores usable search.
 ---
 
 ## 8. Milestone 6: Retrieval benchmark
+
+Implementation status: local evaluator implemented; the approved real-vault
+benchmark measured 22/24 Hit@5. The vault owner confirmed relevance review
+on 2026-10-24; Milestone 6 acceptance is complete. See the [detailed implementation
+plan](16-milestone-6-implementation-plan.md) for completed acceptance evidence.
+
+The [acceptance closure plan](16-milestone-6-implementation-plan.md#9-milestone-6-acceptance-closure-plan)
+records the coverage audit, full-CLI live verification, real-vault benchmark,
+reproducible dense run, and owner-confirmed manual review. Milestone 6 acceptance
+is complete; Milestone 7 acceptance remains separate.
 
 ### Objectives
 
@@ -1638,6 +1721,11 @@ If the baseline misses the target, analyze failures before changing architecture
 
 ## 9. Milestone 7: MCP server
 
+Implementation and acceptance complete on 2026-10-25. Asset-free protocol tests,
+live Qdrant/ONNX search-equivalence tests, and a Codex CLI stdio-client smoke test
+passed. See the detailed [Milestone 7 implementation plan](17-milestone-7-implementation-plan.md)
+for commands, counts, and acceptance evidence.
+
 ### Objectives
 
 Expose:
@@ -1657,6 +1745,11 @@ An MCP client can search the vault and receive provenance-equivalent results to 
 
 ## 10. Milestone 8: Hardening
 
+Status: complete on 2026-10-30; the POC is formally closed. See the
+[Milestone 8 closure evidence](18-milestone-8-implementation-plan.md#7-final-verification-and-poc-closure)
+for the requirements audit, hardening fixes, deterministic rebuild comparisons,
+and final Release acceptance results.
+
 ### Objectives
 
 - error handling
@@ -1674,11 +1767,35 @@ All POC acceptance criteria are demonstrated.
 
 ---
 
-## 11. Post-POC Milestone 9: Hybrid retrieval
+## 11. Post-POC Milestone 9: Answer-quality and agent evaluation
+
+Status: designed on 2026-10-30; implementation, question approval, execution,
+and human review are pending. See the [evaluation milestone design](19-answer-quality-agent-evaluation-plan.md).
+
+### Objectives
+
+- Freeze 20 representative questions and verified, hidden reference labels.
+- Run Codex with `search_knowledge` and `get_note` in fresh, bounded contexts.
+- Review correctness, completeness, grounding, citations, and tool judgment.
+- Separate retrieval failures from context, synthesis, source, and safety failures.
+- Record a measured baseline and recommend the highest-value next improvement.
+
+### Exit criteria
+
+All 20 outcomes are retained and reviewed, with a reproducible run manifest,
+private evidence, a safe aggregate report, and an evidence-backed next-step decision.
+No answer-quality results have been measured yet.
+
+---
+
+## 12. Candidate post-POC Milestone 10: Hybrid retrieval
 
 ### Trigger
 
-Proceed when the dense benchmark reveals exact-term or acronym weaknesses, or when hybrid is otherwise justified by measured quality.
+Proceed only when the agent evaluation and retrieval benchmark diagnose failures
+hybrid could address and justify it over competing improvements. Follow the
+[decision gate](19-answer-quality-agent-evaluation-plan.md#7-failure-attribution-and-next-improvement-decision).
+Milestone numbering reserves a candidate; it is not implementation approval.
 
 ### Objectives
 
@@ -1694,7 +1811,7 @@ Hybrid must materially improve benchmark quality without unacceptable complexity
 
 ---
 
-## 12. Post-POC Milestone 10: Obsidian graph-assisted retrieval
+## 13. Later candidate: Obsidian graph-assisted retrieval
 
 Potential work:
 
@@ -1707,7 +1824,7 @@ Do not add a graph database unless the relational structure becomes complex enou
 
 ---
 
-## 13. Suggested backlog
+## 14. Suggested backlog
 
 ### Epic: Foundation
 
@@ -1776,7 +1893,7 @@ Do not add a graph database unless the relational structure becomes complex enou
 - Review logs for content leakage
 - Document operating procedure
 
-## 14. Recommended implementation order
+## 15. Recommended implementation order
 
 ```text
 Infrastructure
@@ -1795,13 +1912,14 @@ Evaluation
     ↓
 MCP
     ↓
-Hardening
+Hardening / POC closure
     ↓
-Hybrid retrieval
+Answer-quality / agent evaluation
+    ↓
+Evidence-based next improvement (hybrid is a candidate)
 ```
 
 The architecture deliberately puts evaluation before retrieval sophistication.
-
 
 <!-- SOURCE: 06-security-and-privacy.md -->
 
@@ -1851,6 +1969,7 @@ If remote Qdrant is later adopted, authentication, TLS, firewalling, secrets man
 POC:
 
 - local-only
+- stdio transport over the client-managed child process
 - read-only knowledge tools
 - no arbitrary filesystem tool
 - no write-back tool
@@ -1862,9 +1981,27 @@ POC:
 - reject absolute paths outside the vault
 - follow explicit symlink policy
 
-Recommended POC symlink policy:
+Implemented POC symlink policy:
 
-> Do not follow symlinks that resolve outside the configured vault root.
+- Resolve every component of link targets, including newly introduced linked
+  ancestors; reject targets outside the configured vault root.
+- Both the logical alias and fully resolved physical target must satisfy
+  includes and excludes. Exclusion wins. `ai-index: false` applies to the source.
+- Track active directory ancestry to terminate cycles without letting an
+  excluded alias hide another eligible path. Resolve at most 64 links per path;
+  an unresolvable chain fails discovery safely.
+- Recheck containment at source read time. Containment uses conservative ordinal
+  path comparisons rather than assuming the filesystem ignores case. A link
+  with inconsistent path casing can be rejected even on a case-insensitive disk.
+
+These checks are not atomic against concurrent filesystem/link replacement.
+The POC assumes a trusted local owner rather than a hostile concurrent writer.
+MCP accepts canonical, case-sensitive discovered note identities. After an
+upgrade, run `index` to remove previously indexed aliases that no longer qualify.
+
+The MCP host writes protocol frames only to stdout. Diagnostics and help use
+stderr; console logging providers are disabled while serving so note text, query
+arguments, and protocol frames are not copied into application logs.
 
 ## 5. Embeddings
 
@@ -1908,10 +2045,11 @@ Not allowed by default:
 - search-result bodies
 - full user queries when they may contain sensitive content
 
-Recommended query logging:
-
-- disabled or redacted by default
-- explicit debug option for local troubleshooting
+`logContent` and `logQueries` must both be false at every supported log level.
+No debug option enables content or query logging. Explicit CLI inspection/search
+output and MCP tool results intentionally contain requested data; they are not
+application logs. Future agent-evaluation traces are private, opt-in client
+artifacts under ignored `eval/local/`, not server logging.
 
 ## 8. Secrets
 
@@ -1980,7 +2118,6 @@ Required only if moving beyond local single-user operation:
 - data residency
 - enterprise compliance
 
-
 <!-- SOURCE: 07-configuration-reference.md -->
 
 # Configuration Reference
@@ -2025,6 +2162,8 @@ embedding:
   provider: onnx
   model: BAAI/bge-small-en-v1.5
   dimensions: 384
+  modelPath: ./models/bge-small-en-v1.5/onnx/model.onnx
+  tokenizerPath: ./models/bge-small-en-v1.5/vocab.txt
 
 qdrant:
   host: localhost
@@ -2073,11 +2212,32 @@ The following settings are index-defining:
 - normalization behavior
 - embedding schema version
 
-Changing them requires rebuild.
+`modelPath` and `tokenizerPath` are paths to pinned local model and vocabulary
+assets. Both resolve relative to the configuration file and may be overridden by
+`KNOWLEDGE_EMBEDDING__MODELPATH` and `KNOWLEDGE_EMBEDDING__TOKENIZERPATH`.
+`knowledge embeddings` and `knowledge index` require both paths and verify all
+expected asset digests before inference. `knowledge status` does not load the
+assets. `knowledge chunks` may run without them, but its approximate token count
+does not guarantee the model input limit. Model assets are never downloaded at runtime; use
+`scripts/setup-bge-model.sh` to install the pinned ONNX weight file.
+
+Changing index-defining settings requires a fresh collection in Milestone 3;
+Milestone 5 provides `knowledge rebuild` to explicitly recreate the configured
+collection and repopulate it from eligible Markdown. Ordinary `index` stores an
+index-profile fingerprint in each chunk payload and stops before point writes if
+an existing index has a different profile. `status` can inspect configuration and
+Qdrant state even when configured model asset paths are absent or missing.
 
 ### Qdrant
 
-The collection is derived state.
+The collection is derived state. `knowledge index` creates a missing collection
+using a single unnamed 384-dimensional cosine vector and checks existing vector
+layout before writing. It does not recreate an incompatible collection. The
+explicit `rebuild` command deletes and recreates the whole configured collection,
+including points for other vault IDs, so use a dedicated collection. Before the
+deletion it validates local inference assets, completes vault discovery, and
+checks every candidate source can be read. A failure after deletion can leave a
+partial collection; a later `index` or `rebuild` repairs derived state.
 
 Changing the collection name does not migrate data automatically.
 
@@ -2096,6 +2256,47 @@ mode: hybrid
 ```
 
 MCP tool contracts should remain stable.
+
+Milestone 4 uses `retrieval.defaultLimit` when `--limit` is omitted and rejects
+explicit limits outside `1..retrieval.maxLimit` (recommended maximum 50). The
+`search` command accepts an optional literal, case-sensitive vault-relative
+`--path` prefix and repeated exact `--tag` values. Repeated tags are combined
+with AND semantics. The configured `vaultId` is always applied as a filter.
+
+The BGE passage-retrieval instruction is applied to queries only. The query
+formatting identifier is part of the index profile and embedding schema version
+2; an older Milestone 3 collection must be reindexed into a fresh collection
+before search. Search is read-only and does not create a missing collection.
+
+`knowledge evaluate --benchmark <path> --output <path> [--config <path>]`
+requires dense mode, `retrieval.maxLimit` of at least 5, the pinned local model
+and tokenizer assets, and an existing compatible collection. It uses an exact
+top-five chunk cutoff regardless of `retrieval.defaultLimit`, applies no search
+filters, and is read-only. Benchmark and report paths are relative to the
+working directory; keep private real-vault files under ignored `eval/local/`.
+
+### MCP host
+
+Vault discovery evaluates include/exclude globs for both a link's logical path
+and its fully resolved target path. Exclusions win, including through linked
+ancestors. Containment is rechecked before reading; link chains are bounded to
+64 resolutions. These checks do not guarantee atomicity under concurrent file
+replacement. See [security and privacy](06-security-and-privacy.md).
+
+Run `src/Knowledge.Mcp/Knowledge.Mcp.csproj` as the local stdio MCP executable
+with `--config <path>` (default `knowledge.yaml`). It uses the same
+`KNOWLEDGE_` overrides and configuration-file-relative vault/model paths as the
+CLI. Client launch configuration should pass an absolute DLL path and absolute
+config path. Tool discovery and `get_note` do not load model assets or contact
+Qdrant. The first valid `search_knowledge` call initializes one local
+BGE/Qdrant runtime and requires an existing compatible collection. The host
+never indexes or creates a collection.
+
+`search_knowledge` defaults to `retrieval.defaultLimit` and enforces
+`retrieval.maxLimit`; path prefixes and exact tag filters follow CLI semantics.
+`get_note` accepts a canonical vault-relative Markdown path or canonical
+document ID, reads current eligible Markdown, and returns the source hash and
+modification timestamp. Neither tool changes the index or vault.
 
 ## 4. Environment overrides
 
@@ -2120,7 +2321,6 @@ Application startup should fail clearly when:
 - Qdrant configuration is invalid
 - token settings exceed model capability
 - vector dimensions do not match collection configuration
-
 
 <!-- SOURCE: 08-open-questions-and-assumptions.md -->
 
@@ -2450,7 +2650,9 @@ Architecturally planned, not part of the initial dense POC.
 
 ### Recommended default
 
-Introduce after a dense benchmark is recorded.
+The dense baseline is recorded. First measure answer quality and agent tool use
+with [Milestone 9](19-answer-quality-agent-evaluation-plan.md); introduce a hybrid
+experiment only if diagnosed failures justify it over other improvements.
 
 ---
 
@@ -2553,7 +2755,6 @@ Explicitly defer:
 - agent write-back
 - background watcher/service mode
 
-
 <!-- SOURCE: adr/ADR-001-qdrant-vector-store.md -->
 
 # ADR-001: Use Qdrant as the Vector Store
@@ -2605,7 +2806,6 @@ Do not add SQLite in V1.
 
 Qdrant is the sole derived persistent store unless future requirements justify a separate relational/catalog database.
 
-
 <!-- SOURCE: adr/ADR-002-markdown-source-of-truth.md -->
 
 # ADR-002: Markdown Is the Source of Truth
@@ -2632,7 +2832,6 @@ Qdrant is disposable derived state.
 - Index mutations never become authoritative knowledge.
 - Agents do not write knowledge directly into Qdrant.
 - Schema/model changes may use rebuild rather than migration during the POC.
-
 
 <!-- SOURCE: adr/ADR-003-bge-small-en-v1-5.md -->
 
@@ -2682,7 +2881,6 @@ Initial settings:
 - Chunking must respect the model tokenizer limit.
 - Runtime implementation must reproduce reference tokenization, pooling, and normalization behavior.
 
-
 <!-- SOURCE: adr/ADR-004-structure-aware-chunking.md -->
 
 # ADR-004: Use Structure-Aware Markdown Chunking
@@ -2720,7 +2918,6 @@ Use small overlap only when oversized prose must be split.
 - Retrieved chunks should be more coherent.
 - Chunking must understand code blocks, lists, tables, and blockquotes.
 
-
 <!-- SOURCE: adr/ADR-005-indexer-sole-writer.md -->
 
 # ADR-005: The Indexer Is the Sole Writer to Qdrant
@@ -2744,7 +2941,6 @@ The MCP server is read-only.
 - Synchronization logic is centralized.
 - Index state remains a deterministic projection of the vault.
 - Agent write-back, if ever required, must target the authoritative knowledge source through a separate design.
-
 
 <!-- SOURCE: adr/ADR-006-mcp-domain-boundary.md -->
 
@@ -2777,7 +2973,6 @@ Do not expose:
 
 The retrieval implementation can evolve from dense to hybrid, reranked, or graph-assisted search without changing client behavior.
 
-
 <!-- SOURCE: adr/ADR-007-preserve-obsidian-semantics.md -->
 
 # ADR-007: Preserve Obsidian Semantics During Indexing
@@ -2808,7 +3003,6 @@ Wikilinks are stored but not traversed during V1 retrieval.
 - The index retains enough structure for later graph-assisted retrieval.
 - No graph database is needed initially.
 
-
 <!-- SOURCE: adr/ADR-008-local-first-security.md -->
 
 # ADR-008: Local-First Security and No Content Egress by Default
@@ -2838,7 +3032,6 @@ No cloud embedding fallback is permitted by default.
 - Better privacy boundary.
 - Simpler POC security posture.
 - Remote/shared deployment requires a separate security architecture.
-
 
 <!-- SOURCE: adr/ADR-009-document-level-reindexing.md -->
 
@@ -2871,7 +3064,6 @@ Unchanged documents are skipped.
 - Some redundant embedding work after small edits.
 - Chunk-level diffing remains a future optimization.
 
-
 <!-- SOURCE: adr/ADR-010-dense-first-hybrid-later.md -->
 
 # ADR-010: Establish a Dense Retrieval Baseline Before Hybrid Search
@@ -2895,6 +3087,13 @@ The architecture must preserve a path to:
 - Reciprocal Rank Fusion (RRF)
 
 Hybrid search is evaluated after the dense benchmark is recorded.
+
+Sequencing clarification on 2026-10-30: the recorded 22/24 retrieval baseline
+precedes a 20-question answer-quality/agent evaluation using the existing MCP
+tools. Hybrid remains conditional on diagnosed retrieval failures and an
+explicit comparison with competing improvements; see
+[Milestone 9](19-answer-quality-agent-evaluation-plan.md). The dense-first
+decision and stable MCP boundary remain unchanged.
 
 ## Consequences
 

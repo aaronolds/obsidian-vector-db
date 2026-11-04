@@ -12,7 +12,7 @@ using Xunit.Sdk;
 
 namespace Knowledge.Indexing.IntegrationTests;
 
-public sealed class LocalIndexingTests
+public sealed partial class LocalIndexingTests
 {
     [Fact]
     public async Task Knowledge_cli_evaluate_runs_read_only_against_local_qdrant_and_pinned_onnx()

@@ -119,10 +119,12 @@ public sealed class IndexingTests
         var upserts = store.UpsertCalls;
         var point = Assert.Single(store.Points);
         store.Points[point.Key] = point.Value with { IndexProfile = "sha256:unknown" };
+        store.Operations.Clear();
 
         await Assert.ThrowsAsync<IndexCollectionException>(() => coordinator.IndexAsync());
         Assert.Equal(upserts, store.UpsertCalls);
         Assert.Single(store.Points);
+        Assert.Equal(new[] { "ensure", "read" }, store.Operations);
     }
 
     [Fact]
@@ -135,12 +137,14 @@ public sealed class IndexingTests
         var upserts = store.UpsertCalls;
         var point = Assert.Single(store.Points);
         store.Points[point.Key] = point.Value with { EmbeddingSchemaVersion = 1 };
+        store.Operations.Clear();
 
         var error = await Assert.ThrowsAsync<IndexCollectionException>(() => coordinator.IndexAsync());
 
         Assert.Contains("fresh collection", error.Message);
         Assert.Equal(upserts, store.UpsertCalls);
         Assert.Single(store.Points);
+        Assert.Equal(new[] { "ensure", "read" }, store.Operations);
     }
 
     [Fact]
@@ -266,7 +270,7 @@ public sealed class IndexingTests
     }
 
     [Fact]
-    public async Task Incomplete_discovery_from_broken_markdown_link_preserves_collection()
+    public async Task Unreadable_candidate_from_broken_markdown_link_preserves_collection_during_rebuild_preflight()
     {
         using var vault = new TemporaryVault();
         vault.Write("Note.md", "# Note\nSemantic content.");
@@ -274,6 +278,8 @@ public sealed class IndexingTests
         await coordinator.IndexAsync();
         var existingCount = store.Points.Count;
         File.CreateSymbolicLink(Path.Combine(vault.Path, "Unreadable.md"), Path.Combine(vault.Path, "missing-target.md"));
+        Assert.True(new MarkdownIngestor().Discover(IngestionOptions(Options(vault))).IsComplete);
+        store.Operations.Clear();
 
         var result = await coordinator.RebuildAsync();
 
@@ -281,6 +287,27 @@ public sealed class IndexingTests
         Assert.Equal(0, store.RecreateCalls);
         Assert.Equal(existingCount, store.Points.Count);
         Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "read-failed");
+        Assert.Empty(store.Operations);
+    }
+
+    [Fact]
+    public async Task Failed_discovery_causes_no_storage_calls_for_index_or_rebuild()
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("Note.md", "# Note\nOriginal.");
+        var (coordinator, _, store) = Create(vault);
+        await coordinator.IndexAsync();
+        var original = store.Points.ToArray();
+        // Unlike a link to a missing file, a self-link cannot be resolved at discovery.
+        var broken = Path.Combine(vault.Path, "Broken.md");
+        File.CreateSymbolicLink(broken, broken);
+        store.Operations.Clear();
+
+        Assert.False((await coordinator.IndexAsync()).IsComplete);
+        Assert.False((await coordinator.RebuildAsync()).IsComplete);
+        Assert.Equal(original, store.Points.ToArray());
+        Assert.Empty(store.Operations);
+        Assert.Equal(0, store.RecreateCalls);
     }
 
     [Fact]
@@ -324,6 +351,156 @@ public sealed class IndexingTests
         var id = QdrantKnowledgeIndexStore.ToPointId("sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef");
         Assert.Equal(Guid.Parse("01234567-89ab-cdef-0123-456789abcdef"), id);
         Assert.Throws<ArgumentException>(() => QdrantKnowledgeIndexStore.ToPointId("sha256:not-a-digest"));
+    }
+
+    [Theory]
+    [InlineData("read")]
+    [InlineData("delete")]
+    [InlineData("upsert")]
+    [InlineData("verify")]
+    [InlineData("stale")]
+    public async Task Storage_rpc_failures_stop_subsequent_mutations_and_retry_converges(string stage)
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("A.md", "# A\nOriginal.");
+        vault.Write("B.md", "# B\nUnchanged neighbor.");
+        vault.Write("Z.md", "# Z\nStale source.");
+        var (coordinator, _, store) = Create(vault);
+        await coordinator.IndexAsync();
+        var neighbor = store.Points.Values.Single(point => point.RelativePath == "B.md");
+        vault.Write("A.md", "# A\nReplacement.");
+        File.Delete(Path.Combine(vault.Path, "Z.md"));
+        store.Operations.Clear();
+        var reads = 0;
+        var deletes = 0;
+        store.OnOperation = operation =>
+        {
+            if (operation == "read") reads++;
+            if (operation == "delete") deletes++;
+            if ((stage == "read" && operation == "read") ||
+                (stage == "delete" && operation == "delete") ||
+                (stage == "upsert" && operation == "upsert") ||
+                (stage == "verify" && operation == "read" && reads == 2) ||
+                (stage == "stale" && operation == "delete" && deletes == 2))
+                throw new Grpc.Core.RpcException(new Grpc.Core.Status(Grpc.Core.StatusCode.Unavailable, "PRIVATE_EXCEPTION_SENTINEL"));
+        };
+
+        if (stage is "upsert" or "verify")
+        {
+            var failed = await coordinator.IndexAsync();
+            Assert.False(failed.IsComplete);
+            Assert.Equal(0, failed.StaleDeleted);
+            Assert.DoesNotContain("PRIVATE_EXCEPTION_SENTINEL", string.Join(' ', failed.Diagnostics));
+        }
+        else await Assert.ThrowsAsync<Grpc.Core.RpcException>(() => coordinator.IndexAsync());
+        Assert.Equal(neighbor, store.Points.Values.Single(point => point.RelativePath == "B.md"));
+        Assert.Contains(store.Points.Values, point => point.RelativePath == "Z.md");
+        Assert.Equal(stage switch
+        {
+            "read" => new[] { "ensure", "read" },
+            "delete" => ["ensure", "read", "delete"],
+            "upsert" => ["ensure", "read", "delete", "upsert"],
+            "verify" => ["ensure", "read", "delete", "upsert", "read"],
+            _ => ["ensure", "read", "delete", "upsert", "read", "delete"]
+        }, store.Operations);
+
+        store.OnOperation = null;
+        Assert.True((await coordinator.IndexAsync()).IsComplete);
+        Assert.DoesNotContain(store.Points.Values, point => point.RelativePath == "Z.md");
+        var noop = await coordinator.IndexAsync();
+        Assert.Equal(2, noop.Unchanged);
+        Assert.Equal(0, noop.EmbeddingCalls);
+        Assert.Equal(0, noop.ChunksWritten);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Partial_writes_and_cancellation_after_write_are_repaired_without_unsafe_cleanup(bool cancel)
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("A.md", "# A\nOriginal.");
+        vault.Write("Z.md", "# Z\nStale source.");
+        var (coordinator, _, store) = Create(vault);
+        await coordinator.IndexAsync();
+        vault.Write("A.md", "# A\n## One\nChanged one.\n## Two\nChanged two.");
+        File.Delete(Path.Combine(vault.Path, "Z.md"));
+        using var cancellation = new CancellationTokenSource();
+        store.UpsertPointLimit = 1;
+        store.AfterUpsert = () => { if (cancel) cancellation.Cancel(); };
+
+        if (cancel) await Assert.ThrowsAnyAsync<OperationCanceledException>(() => coordinator.IndexAsync(cancellation.Token));
+        else
+        {
+            var partial = await coordinator.IndexAsync();
+            Assert.False(partial.IsComplete);
+            Assert.Equal(0, partial.StaleDeleted);
+        }
+        Assert.Contains(store.Points.Values, point => point.RelativePath == "Z.md");
+        Assert.Single(store.Points.Values, point => point.RelativePath == "A.md");
+        store.UpsertPointLimit = null;
+        store.AfterUpsert = null;
+        var repaired = await coordinator.IndexAsync();
+        Assert.True(repaired.IsComplete);
+        Assert.Equal(1, repaired.Indexed);
+        Assert.Equal(2, store.Points.Count);
+        Assert.Equal(0, (await coordinator.IndexAsync()).EmbeddingCalls);
+    }
+
+    [Theory]
+    [InlineData("---\ntags: [PRIVATE_NOTE_SENTINEL\n---\nbody")]
+    [InlineData("# Note\n```\nPRIVATE_NOTE_SENTINEL")]
+    [InlineData("invalid-utf8")]
+    public async Task Malformed_replacements_delete_before_parse_preserve_neighbors_and_retry(string malformed)
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("A.md", "# A\nOriginal.");
+        vault.Write("B.md", "# B\nNeighbor.");
+        var (coordinator, embeddings, store) = Create(vault);
+        await coordinator.IndexAsync();
+        var neighbor = store.Points.Values.Single(point => point.RelativePath == "B.md");
+        if (malformed == "invalid-utf8") File.WriteAllBytes(Path.Combine(vault.Path, "A.md"), [0xff]);
+        else vault.Write("A.md", malformed);
+        store.Operations.Clear();
+        var calls = embeddings.Calls;
+
+        var result = await coordinator.IndexAsync();
+
+        Assert.False(result.IsComplete);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.RelativePath == "A.md" && diagnostic.Code == "parse-failed");
+        Assert.DoesNotContain("PRIVATE_NOTE_SENTINEL", string.Join(' ', result.Diagnostics));
+        Assert.Equal(new[] { "ensure", "read", "delete" }, store.Operations);
+        Assert.Equal(calls, embeddings.Calls);
+        Assert.Equal(neighbor, Assert.Single(store.Points.Values));
+        vault.Write("A.md", "# A\nRepaired.");
+        Assert.Equal(1, (await coordinator.IndexAsync()).Indexed);
+    }
+
+    [Fact]
+    public async Task Read_failure_after_discovery_retains_the_document_and_allows_safe_neighbors()
+    {
+        using var vault = new TemporaryVault();
+        using var outside = new TemporaryVault();
+        vault.Write("A.md", "# A\nOriginal.");
+        vault.Write("B.md", "# B\nOriginal neighbor.");
+        outside.Write("A.md", "PRIVATE_NOTE_SENTINEL");
+        var (coordinator, _, store) = Create(vault);
+        await coordinator.IndexAsync();
+        var original = store.Points.Values.Single(point => point.RelativePath == "A.md");
+        vault.Write("B.md", "# B\nChanged neighbor.");
+        store.OnOperation = operation =>
+        {
+            if (operation != "ensure") return;
+            File.Delete(Path.Combine(vault.Path, "A.md"));
+            File.CreateSymbolicLink(Path.Combine(vault.Path, "A.md"), Path.Combine(outside.Path, "A.md"));
+        };
+
+        var result = await coordinator.IndexAsync();
+
+        Assert.False(result.IsComplete);
+        Assert.Contains(result.Diagnostics, diagnostic => diagnostic.Code == "read-failed" && diagnostic.RelativePath == "A.md");
+        Assert.Equal(original, store.Points.Values.Single(point => point.RelativePath == "A.md"));
+        Assert.Equal(1, result.Indexed);
     }
 
     private static (IndexCoordinator Coordinator, CountingEmbeddingService Embeddings, MemoryIndexStore Store) Create(TemporaryVault vault)
@@ -372,7 +549,21 @@ public sealed class IndexingTests
         public int UpsertCalls { get; private set; }
         public int RecreateCalls { get; private set; }
         public bool FailNextUpsert { get; set; }
-        public Task EnsureCollectionAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Action<string>? OnOperation { get; set; }
+        public Action? AfterUpsert { get; set; }
+        public int? UpsertPointLimit { get; set; }
+        public List<string> Operations { get; } = [];
+        private void Operation(string name, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Operations.Add(name);
+            OnOperation?.Invoke(name);
+        }
+        public Task EnsureCollectionAsync(CancellationToken cancellationToken = default)
+        {
+            Operation("ensure", cancellationToken);
+            return Task.CompletedTask;
+        }
         public Task RecreateCollectionAsync(CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -380,11 +571,15 @@ public sealed class IndexingTests
             Points.Clear();
             return Task.CompletedTask;
         }
-        public Task<IReadOnlyList<IndexedChunkMetadata>> GetIndexedChunksAsync(string vaultId, CancellationToken cancellationToken = default) =>
-            Task.FromResult<IReadOnlyList<IndexedChunkMetadata>>(Points.Values.Where(point => point.VaultId == vaultId).ToArray());
+        public Task<IReadOnlyList<IndexedChunkMetadata>> GetIndexedChunksAsync(string vaultId, CancellationToken cancellationToken = default)
+        {
+            Operation("read", cancellationToken);
+            return Task.FromResult<IReadOnlyList<IndexedChunkMetadata>>(Points.Values.Where(point => point.VaultId == vaultId).ToArray());
+        }
 
         public Task DeleteDocumentAsync(string vaultId, string documentId, CancellationToken cancellationToken = default)
         {
+            Operation("delete", cancellationToken);
             foreach (var key in Points.Where(pair => pair.Value.VaultId == vaultId && pair.Value.DocumentId == documentId).Select(pair => pair.Key).ToArray())
                 Points.Remove(key);
             return Task.CompletedTask;
@@ -392,17 +587,19 @@ public sealed class IndexingTests
 
         public Task UpsertAsync(IReadOnlyList<KnowledgeIndexPoint> points, CancellationToken cancellationToken = default)
         {
+            Operation("upsert", cancellationToken);
             UpsertCalls++;
             if (FailNextUpsert)
             {
                 FailNextUpsert = false;
                 throw new InvalidOperationException("Synthetic unconfirmed Qdrant write.");
             }
-            foreach (var item in points)
+            foreach (var item in points.Take(UpsertPointLimit ?? points.Count))
                 Points[item.PointId] = new IndexedChunkMetadata(item.PointId.ToString(), item.Chunk.VaultId,
                     item.Chunk.DocumentId, item.Chunk.ChunkId, item.Chunk.RelativePath, item.Chunk.FileHash,
                     item.Chunk.ChunkOrdinal, KnowledgeIndexSchema.SchemaVersion, item.Embedding.Provider, item.Embedding.Model,
                     item.Embedding.Dimensions, KnowledgeIndexSchema.EmbeddingSchemaVersion, item.DocumentChunkCount, item.IndexProfile);
+            AfterUpsert?.Invoke();
             return Task.CompletedTask;
         }
     }

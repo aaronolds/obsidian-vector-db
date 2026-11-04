@@ -155,6 +155,12 @@ working directory; keep private real-vault files under ignored `eval/local/`.
 
 ### MCP host
 
+Vault discovery evaluates include/exclude globs for both a link's logical path
+and its fully resolved target path. Exclusions win, including through linked
+ancestors. Containment is rechecked before reading; link chains are bounded to
+64 resolutions. These checks do not guarantee atomicity under concurrent file
+replacement. See [security and privacy](06-security-and-privacy.md).
+
 Run `src/Knowledge.Mcp/Knowledge.Mcp.csproj` as the local stdio MCP executable
 with `--config <path>` (default `knowledge.yaml`). It uses the same
 `KNOWLEDGE_` overrides and configuration-file-relative vault/model paths as the

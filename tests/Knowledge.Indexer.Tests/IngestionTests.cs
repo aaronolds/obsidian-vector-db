@@ -96,6 +96,67 @@ public sealed class IngestionTests
     }
 
     [Fact]
+    public void Internal_aliases_cannot_bypass_target_eligibility_or_hide_canonical_notes()
+    {
+        using var vault = new TemporaryVault();
+        vault.Write("Templates/Secret.md", "Excluded target.");
+        vault.Write("Notes/Visible.md", "Eligible target.");
+        File.CreateSymbolicLink(Path.Combine(vault.Path, "Leaked.md"), Path.Combine(vault.Path, "Templates/Secret.md"));
+        Directory.CreateSymbolicLink(Path.Combine(vault.Path, "AExcludedAlias"), Path.Combine(vault.Path, "Notes"));
+        Directory.CreateSymbolicLink(Path.Combine(vault.Path, "BLeakedAlias"), Path.Combine(vault.Path, "Templates"));
+
+        var scan = new MarkdownIngestor().Discover(new MarkdownIngestionOptions(
+            "primary", vault.Path, ["**/*.md"], ["Templates/**", "AExcludedAlias/**"], "ai-index", 300, 400, 40));
+
+        Assert.True(scan.IsComplete);
+        Assert.Equal("Notes/Visible.md", Assert.Single(scan.Files).RelativePath);
+    }
+
+    [Fact]
+    public void Directory_alias_expansion_is_bounded_without_hiding_canonical_notes()
+    {
+        using var vault = new TemporaryVault();
+        var current = "";
+        for (var level = 0; level < 12; level++)
+        {
+            var parent = Path.Combine(vault.Path, current);
+            var child = Path.Combine(parent, $"Level{level:D2}");
+            Directory.CreateDirectory(child);
+            Directory.CreateSymbolicLink(Path.Combine(parent, $"ZAlias{level:D2}"), child);
+            current = Path.Combine(current, $"Level{level:D2}");
+        }
+        vault.Write(Path.Combine(current, "Visible.md"), "Eligible canonical note.");
+
+        var scan = new MarkdownIngestor().Discover(new MarkdownIngestionOptions(
+            "primary", vault.Path, ["**/*.md"], [], "ai-index", 300, 400, 40));
+
+        Assert.False(scan.IsComplete);
+        Assert.Contains(scan.Files, file => file.RelativePath == Path.Combine(current, "Visible.md").Replace(Path.DirectorySeparatorChar, '/'));
+        Assert.Contains(scan.Diagnostics, diagnostic => diagnostic.Code == "alias-expansion-limited");
+    }
+
+    [Fact]
+    public void File_link_targets_with_linked_ancestors_cannot_bypass_containment_or_exclusions()
+    {
+        using var vault = new TemporaryVault();
+        using var outside = new TemporaryVault();
+        vault.Write("Templates/Secret.md", "Excluded target.");
+        outside.Write("Secret.md", "External target.");
+        Directory.CreateSymbolicLink(Path.Combine(vault.Path, "Indirect"), Path.Combine(vault.Path, "Templates"));
+        Directory.CreateSymbolicLink(Path.Combine(vault.Path, "External"), outside.Path);
+        File.CreateSymbolicLink(Path.Combine(vault.Path, "Alias.md"), Path.Combine(vault.Path, "Indirect/Secret.md"));
+        File.CreateSymbolicLink(Path.Combine(vault.Path, "Escaped.md"), Path.Combine(vault.Path, "External/Secret.md"));
+        var ingestor = new MarkdownIngestor();
+        var scan = ingestor.Discover(new MarkdownIngestionOptions(
+            "primary", vault.Path, ["**/*.md"], ["Templates/**"], "ai-index", 300, 400, 40));
+
+        Assert.True(scan.IsComplete);
+        Assert.Empty(scan.Files);
+        Assert.Throws<UnauthorizedAccessException>(() => ingestor.ReadSnapshot(new VaultFile(
+            Path.Combine(vault.Path, "Escaped.md"), "Escaped.md", vault.Path)));
+    }
+
+    [Fact]
     public void Large_prose_is_split_without_losing_all_content()
     {
         using var vault = new TemporaryVault();
