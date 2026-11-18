@@ -39,6 +39,28 @@ The temporary acceptance collection was removed and no notes were changed.
 
 Run the following commands from the repository root.
 
+## Build, start Qdrant, and run
+
+The Bash wrapper checks the installed .NET SDK and running Docker daemon,
+restores and builds the solution, starts Qdrant, waits for the configured gRPC
+endpoint to respond, and runs the requested CLI command. With no arguments it
+indexes using `knowledge.local.yaml` (a local configuration you must provide).
+Install the pinned model assets separately with `./scripts/setup-bge-model.sh`
+before indexing or searching.
+
+```sh
+./scripts/run-knowledge.sh
+./scripts/run-knowledge.sh status
+./scripts/run-knowledge.sh search "How does OBO work?"
+./scripts/run-knowledge.sh index --config knowledge.milestone4.yaml
+```
+
+Paths passed to the wrapper resolve from the repository root, even when launched
+from another directory. Existing `KNOWLEDGE_` environment overrides apply.
+Qdrant remains running after the command finishes. Run only one index/rebuild
+process per collection. This wrapper launches the CLI; configure the stdio MCP
+server separately as described below.
+
 ## Restore and build
 
 ```sh
